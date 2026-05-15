@@ -1,12 +1,13 @@
 package main
 
 import (
-	"ai-code-review/handler"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/Darshan0403/ai-code-review/services/webhook-handler/handler"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func main() {

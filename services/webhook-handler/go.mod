@@ -1,4 +1,4 @@
-module ai-code-review
+module github.com/Darshan0403/ai-code-review/services/webhook-handler
 
 go 1.26.3
 

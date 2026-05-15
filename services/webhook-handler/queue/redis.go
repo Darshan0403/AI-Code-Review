@@ -1,9 +1,10 @@
 package queue
 
 import (
-	"ai-code-review/models"
 	"context"
 	"encoding/json"
+
+	"github.com/Darshan0403/ai-code-review/services/webhook-handler/models"
 
 	"github.com/redis/go-redis/v9"
 )

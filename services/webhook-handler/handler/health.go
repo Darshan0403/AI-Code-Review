@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"ai-code-review/queue" // Adjust this to your actual module path
 	"log/slog"
+
+	"github.com/Darshan0403/ai-code-review/services/webhook-handler/queue" // Adjust this to your actual module path
 )
 
 type HealthResponse struct {

@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"ai-code-review/models" // Import your models
-	"ai-code-review/queue"  // Import your redis client
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/Darshan0403/ai-code-review/services/webhook-handler/models" // Import your models
+	"github.com/Darshan0403/ai-code-review/services/webhook-handler/queue"  // Import your redis client
 )
 
 func EchoHandler(w http.ResponseWriter, r *http.Request) {
