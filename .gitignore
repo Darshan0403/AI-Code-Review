@@ -1,0 +1,11 @@
+# Mac system files
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Compiled Go binaries
+*.exe
+*.out
+.env

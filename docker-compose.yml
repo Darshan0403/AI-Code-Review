@@ -1,0 +1,13 @@
+services:
+  redis:
+    image: redis:7-alpine  # 'alpine' is a tiny, lightweight version of Linux
+    ports:
+      - "6379:6379"        # Map (Mac Port) : (Inside Container Port)
+
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: codereview
