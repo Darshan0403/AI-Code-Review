@@ -1,13 +1,23 @@
-services:
-  redis:
-    image: redis:7-alpine  # 'alpine' is a tiny, lightweight version of Linux
-    ports:
-      - "6379:6379"        # Map (Mac Port) : (Inside Container Port)
+version: '3.8'
 
-  postgres:
-    image: postgres:16
+services:
+  # 1. The Fast Queue (Redis)
+  redis:
+    image: redis:7-alpine
+    container_name: review_redis
     ports:
-      - "5432:5432"
+      - "6379:6379"
+
+  # 2. The Long-Term Memory (PostgreSQL)
+  postgres:
+    image: postgres:15-alpine
+    container_name: review_db
     environment:
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: codereview
+    ports:
+      - "5432:5432"
+    volumes:
+      # This line magically runs your init.sql file the first time the DB boots!
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
