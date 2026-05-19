@@ -1,0 +1,217 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ═══════════════════════════════════════════
+   THE VOID — Design Tokens
+   ═══════════════════════════════════════════ */
+:root {
+  --black: #050505;
+  --white: #f0f0f0;
+  --gray-100: #e5e5e5;
+  --gray-400: #737373;
+  --gray-600: #404040;
+  --gray-800: #1a1a1a;
+  --gray-900: #0d0d0d;
+
+  /* Colors only appear on interaction or severity */
+  --accent-1: #6366f1;
+  --accent-2: #8b5cf6;
+  --accent-3: #06b6d4;
+
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --blue: #3b82f6;
+  --green: #22c55e;
+
+  --font: 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+
+  --border-invisible: rgba(255, 255, 255, 0.04);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-visible: rgba(255, 255, 255, 0.15);
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  background: var(--black);
+  color: var(--white);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════
+   THE CARD — Invisible at rest, alive on hover
+   ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   THE CARD — Invisible at rest, alive on hover
+   ═══════════════════════════════════════════ */
+.void-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-invisible);
+  border-radius: 12px;
+  padding: 1.5rem;
+  /* Smoother easing curve for a very premium lift */
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+/* The breathing gradient border */
+.void-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 13px;
+  padding: 1px;
+  /* 1. Create a massive, wide gradient */
+  background: linear-gradient(
+    90deg,
+    var(--accent-1),
+    var(--accent-2),
+    var(--accent-3),
+    var(--accent-1)
+  );
+  background-size: 300% 100%;
+  
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  /* 2. Slide it horizontally (GPU accelerated) */
+  animation: smoothGradient 4s linear infinite;
+}
+
+@keyframes smoothGradient {
+  0% { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+
+.void-card:hover {
+  background: rgba(255, 255, 255, 0.02);
+  /* INCREASED LIFT: Moves up 8px and scales slightly more */
+  transform: translateY(-8px) scale(1.02);
+  /* DEEPER SHADOW: Matches the higher elevation */
+  box-shadow:
+    0 30px 60px rgba(0, 0, 0, 0.8),
+    0 0 40px rgba(99, 102, 241, 0.06);
+}
+
+.void-card:hover::before {
+  opacity: 1;
+}
+
+.void-card:active {
+  transform: translateY(-2px) scale(1.005);
+  transition-duration: 0.1s;
+}
+/* ═══════════════════════════════════════════
+   ROW — For review lists
+   ═══════════════════════════════════════════ */
+.void-row {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-invisible);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  position: relative;
+}
+.void-row::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, var(--accent-1), var(--accent-3));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.void-row:hover {
+  background: rgba(255, 255, 255, 0.015);
+}
+.void-row:hover::after {
+  opacity: 1;
+}
+
+/* ═══════════════════════════════════════════
+   SEVERITY — Tiny colored dots, not badges
+   ═══════════════════════════════════════════ */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-red    { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+.dot-amber  { background: var(--amber); box-shadow: 0 0 6px rgba(245,158,11,0.5); }
+.dot-blue   { background: var(--blue); box-shadow: 0 0 6px rgba(59,130,246,0.5); }
+.dot-green  { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+
+/* ═══════════════════════════════════════════
+   TYPOGRAPHY — Contrast is the design
+   ═══════════════════════════════════════════ */
+.text-huge  { font-size: 3rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.text-large { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+.text-body  { font-size: 0.9rem; color: var(--gray-400); }
+.text-muted { font-size: 0.8rem; color: var(--gray-600); }
+.text-mono  { font-family: var(--mono); font-size: 0.85rem; }
+
+/* ═══════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  opacity: 0;
+  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Stagger children delays */
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 80ms; }
+.stagger > *:nth-child(3) { animation-delay: 160ms; }
+.stagger > *:nth-child(4) { animation-delay: 240ms; }
+.stagger > *:nth-child(5) { animation-delay: 320ms; }
+.stagger > *:nth-child(6) { animation-delay: 400ms; }
+.stagger > *:nth-child(7) { animation-delay: 480ms; }
+.stagger > *:nth-child(8) { animation-delay: 560ms; }
+
+/* Skeleton loader */
+@keyframes skeletonBreathe {
+  0%, 100% { opacity: 0.02; }
+  50% { opacity: 0.05; }
+}
+.skeleton {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  animation: skeletonBreathe 2s ease-in-out infinite;
+}
+
+/* Scrollbar - nearly invisible */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+.nav-link:hover { color: var(--white) !important; background: rgba(255, 255, 255, 0.015) !important; }
+.nav-link:hover .nav-accent { opacity: 0.5 !important; }
+
+/* ═══════════════════════════════════════════
+   SMOOTH COLLAPSE (ACCORDION)
+   ═══════════════════════════════════════════ */
+.void-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.void-collapse.open {
+  grid-template-rows: 1fr;
+}
+
+.void-collapse-inner {
+  overflow: hidden;
+}
