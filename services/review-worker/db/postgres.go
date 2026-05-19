@@ -37,3 +37,17 @@ func (db *DB) SaveReview(ctx context.Context, repo string, prNum int, headSha st
 
 	return reviewID, nil
 }
+
+// SaveComment logs an individual AI comment into the review_comments table
+func (db *DB) SaveComment(ctx context.Context, reviewID string, filePath string, lineNumber int, severity string, commentText string) error {
+	query := `
+		INSERT INTO review_comments (review_id, file_path, line_number, severity, comment_text)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	// Exec is used for Inserts where we don't need to read a returned ID
+	_, err := db.Conn.Exec(ctx, query, reviewID, filePath, lineNumber, severity, commentText)
+	if err != nil {
+		return fmt.Errorf("failed to insert comment: %w", err)
+	}
+	return nil
+}

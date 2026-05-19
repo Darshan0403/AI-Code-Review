@@ -1,57 +1,93 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
-	// 1. We import the parser so Go knows what it is!
-	"github.com/Darshan0403/ai-code-review/services/review-worker/parser"
-
-	// 2. We nickname our local github folder 'localgh' to avoid confusion
+	"github.com/Darshan0403/ai-code-review/services/review-worker/db"
 	localgh "github.com/Darshan0403/ai-code-review/services/review-worker/github"
 	"github.com/Darshan0403/ai-code-review/services/review-worker/models"
-
-	// 3. The official Google GitHub library for the Struct types
+	"github.com/Darshan0403/ai-code-review/services/review-worker/parser"
 	"github.com/google/go-github/v62/github"
 	"github.com/redis/go-redis/v9"
-
-	"github.com/Darshan0403/ai-code-review/services/review-worker/db"
 )
 
 const QueueName = "review_jobs"
 
-// Start is the infinite loop that processes jobs
+// --- NEW: Python API Structs ---
+type AIReviewRequest struct {
+	FilePath    string `json:"file_path"`
+	DiffContent string `json:"diff_content"`
+	PRNumber    int    `json:"pr_number"`
+	Repo        string `json:"repo"`
+}
+
+type AIReviewComment struct {
+	FilePath string `json:"file_path"`
+	Line     int    `json:"line"`
+	Severity string `json:"severity"`
+	Comment  string `json:"comment"`
+}
+
+type AIReviewResponse struct {
+	Comments []AIReviewComment `json:"comments"`
+	IsLGTM   bool              `json:"is_lgtm"`
+}
+
+// getAIReview calls your Python FastAPI service
+func getAIReview(req AIReviewRequest) (*AIReviewResponse, error) {
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Call the Python service!
+	resp, err := http.Post("http://localhost:8082/api/review", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("python API returned status: %d", resp.StatusCode)
+	}
+
+	var result AIReviewResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// -------------------------------
+
 func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbConn *db.DB) {
 	slog.Info("Worker started. Listening for jobs...")
 
 	for {
-		// 1. Check if we've been told to shut down
 		select {
 		case <-ctx.Done():
 			slog.Info("Worker shutting down safely...")
 			return
 		default:
-			// 2. Wait for a job (BRPOP blocks for 2 seconds, then loops)
-			// We use a timeout instead of 0 (infinite) so the loop can regularly
-			// check if ctx.Done() has been called.
 			result, err := rdb.BRPop(ctx, 2*time.Second, QueueName).Result()
 
 			if err == redis.Nil {
-				// No jobs in queue, just loop again
 				continue
 			} else if err != nil {
-				// Only log if it's an actual error, not a context cancellation
 				if ctx.Err() == nil {
 					slog.Error("Redis error", "error", err)
 				}
 				continue
 			}
 
-			// 3. We got a job! Unpack it.
 			var job models.ReviewJob
 			if err := json.Unmarshal([]byte(result[1]), &job); err != nil {
 				slog.Error("Failed to parse job JSON", "error", err)
@@ -63,73 +99,126 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 			parts := strings.Split(job.Repo, "/")
 			if len(parts) != 2 {
 				slog.Error("Invalid repo format inside job", "repo", job.Repo)
-				continue // Skip this broken job
+				continue
 			}
+			owner := parts[0]
+			repoName := parts[1]
 
-			owner := parts[0]    // "Darshan0403"
-			repoName := parts[1] // "ai-code-review-test-repo"
+			slog.Info("Fetching diff for PR", "owner", owner, "repoName", repoName, "pr", job.PRNum)
 
-			slog.Info("Fetching diff for PR", "repo", job.Repo, "pr", job.PRNum)
-
-			// FETCH THE DIFF
 			diff, err := ghClient.FetchPRDiff(ctx, owner, repoName, job.PRNum)
 			if err != nil {
 				slog.Error("Failed to fetch diff", "error", err)
 				continue
 			}
 
-			slog.Info("Successfully fetched diff!", "bytes", len(diff))
-
-			// 1. PARSE THE DIFF
 			parsedFiles, err := parser.ParseRawDiff(diff)
 			if err != nil {
 				slog.Error("Failed to parse diff", "error", err)
 				continue
 			}
 
-			// 2. PREPARE THE COMMENTS
-			var comments []*github.DraftReviewComment
+			var allGitHubComments []*github.DraftReviewComment
+			var allAIComments []AIReviewComment
 
+			// Loop through every file changed in the PR
+			// Loop through every file changed in the PR
 			for _, file := range parsedFiles {
-				if len(file.AddedLines) > 0 {
-					// Grab the very first added line in this file
-					firstLine := file.AddedLines[0]
+				if len(file.AddedLines) == 0 {
+					continue // Skip files with no new lines
+				}
 
-					slog.Info("Preparing comment", "file", file.FileName, "line", firstLine.Number)
+				// --- NEW: Create a map of valid lines for our Safety Net ---
+				validLines := make(map[int]bool)
 
-					// Create our dummy comment!
-					commentBody := fmt.Sprintf("🤖 **Beep Boop!** I am your new AI reviewer. I see you added `%s` on line %d. My brain is not connected yet, but I am watching you.", strings.TrimSpace(firstLine.Content), firstLine.Number)
+				// Reconstruct a simplified diff to send to Python, WITH line numbers!
+				var diffBuilder strings.Builder
+				for _, line := range file.AddedLines {
+					validLines[line.Number] = true // Mark this line as valid!
+					diffBuilder.WriteString(fmt.Sprintf("%d: + %s\n", line.Number, line.Content))
+				}
 
-					comments = append(comments, localgh.NewComment(file.FileName, firstLine.Number, commentBody))
+				slog.Info("Asking AI to review file...", "file", file.FileName)
 
-					// Break after one comment so we don't spam the PR if there are many files
-					break
+				// Make the API call to Python
+				aiResponse, err := getAIReview(AIReviewRequest{
+					FilePath:    file.FileName,
+					DiffContent: diffBuilder.String(),
+					PRNumber:    job.PRNum,
+					Repo:        job.Repo,
+				})
+
+				if err != nil {
+					slog.Error("Failed to get AI review", "error", err)
+					continue // Skip to next file if AI fails
+				}
+
+				if aiResponse.IsLGTM {
+					slog.Info("AI says LGTM!", "file", file.FileName)
+					continue
+				}
+
+				// Convert Python API comments to GitHub API comments
+				for _, aiComment := range aiResponse.Comments {
+
+					// --- NEW: THE SAFETY NET ---
+					// If the AI gave us a line number that GitHub will reject,
+					// we snap it to the first valid line in the file.
+					if !validLines[aiComment.Line] {
+						slog.Warn("AI hallucinated an invalid line number. Snapping to fallback.",
+							"bad_line", aiComment.Line,
+							"snapped_line", file.AddedLines[0].Number)
+
+						aiComment.Line = file.AddedLines[0].Number
+					}
+					// ---------------------------
+
+					// Add a cool emoji based on severity
+					emoji := "💡"
+					if aiComment.Severity == "error" {
+						emoji = "🚨"
+					} else if aiComment.Severity == "warning" {
+						emoji = "⚠️"
+					}
+
+					formattedBody := fmt.Sprintf("%s **[%s]** %s", emoji, strings.ToUpper(aiComment.Severity), aiComment.Comment)
+					allGitHubComments = append(allGitHubComments, localgh.NewComment(aiComment.FilePath, aiComment.Line, formattedBody))
+					allAIComments = append(allAIComments, aiComment)
 				}
 			}
 
-			// 3. POST TO GITHUB!
-			if len(comments) > 0 {
-				slog.Info("Posting review to GitHub...")
-				err = ghClient.PostReviewComments(ctx, owner, repoName, job.PRNum, comments)
+			// POST TO GITHUB!
+			if len(allGitHubComments) > 0 {
+				slog.Info("Posting AI review to GitHub...")
+				err = ghClient.PostReviewComments(ctx, owner, repoName, job.PRNum, allGitHubComments)
 				if err != nil {
 					slog.Error("Failed to post review", "error", err)
 					continue
 				}
-				slog.Info("Review posted successfully! Go check GitHub! ")
+				slog.Info("Review posted successfully! Go check GitHub! 🎉")
+
+				// SAVE TO DATABASE
+				dbID, err := dbConn.SaveReview(ctx, job.Repo, job.PRNum, "unknown_sha")
+				if err != nil {
+					slog.Error("Failed to save review to database", "error", err)
+				} else {
+					slog.Info("Successfully saved review to Postgres!", "db_id", dbID)
+
+					// --- NEW: Save every individual comment to the DB ---
+					for _, comment := range allAIComments {
+						err := dbConn.SaveComment(ctx, dbID, comment.FilePath, comment.Line, comment.Severity, comment.Comment)
+						if err != nil {
+							slog.Error("Failed to save comment to DB", "error", err)
+						}
+					}
+					slog.Info("Successfully saved all comments to Postgres!")
+					// ----------------------------------------------------
+				}
+
 			} else {
-				slog.Info("No new lines to comment on.")
+				slog.Info("AI had no comments (LGTM!). Nothing posted to GitHub.")
 			}
 
-			slog.Info("Saving review to database...")
-			// We don't have the exact git commit SHA yet, so we pass a placeholder "unknown_sha"
-			dbID, err := dbConn.SaveReview(ctx, job.Repo, job.PRNum, "unknown_sha")
-			if err != nil {
-				slog.Error("Failed to save to database", "error", err)
-			} else {
-				slog.Info("Successfully saved to Postgres!", "db_id", dbID)
-			}
-
-			// Finished!
 			slog.Info("Finished processing job!", "pr", job.PRNum)
 		}
 	}
