@@ -3,6 +3,8 @@ CREATE TABLE repositories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     github_full_name VARCHAR(255) UNIQUE NOT NULL,
     webhook_secret VARCHAR(255) NOT NULL,
+    custom_instructions TEXT,
+    is_paused BOOLEAN DEFAULT FALSE,
     indexed_at TIMESTAMPTZ,
     config JSONB DEFAULT '{}'
 );
