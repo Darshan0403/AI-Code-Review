@@ -1,12 +1,28 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 export default function Sidebar() {
+  const navigate = useNavigate();
+  const { isConnected } = useWebSocket('ws://localhost:8083/ws/live');
+  
+  // Check if we are in the Admin Vault
+  const isAdmin = !!localStorage.getItem('void_token');
+
   const navItems = [
-    { path: '/', label: 'Dashboard' },
+    { path: '/dashboard', label: 'Dashboard' }, // <-- Updated to match new routing
     { path: '/reviews', label: 'Reviews' },
     { path: '/repos', label: 'Repositories' },
   ];
+
+  const handleAdminToggle = () => {
+    if (isAdmin) {
+      localStorage.removeItem('void_token');
+      window.location.reload(); // Force full reload to wipe auth state
+    } else {
+      navigate('/login');
+    }
+  };
 
   return (
     <div style={{
@@ -15,7 +31,7 @@ export default function Sidebar() {
       left: 0,
       width: '220px',
       height: '100vh',
-      background: 'var(--black)', // Merges perfectly with the void
+      background: 'var(--black)',
       borderRight: '1px solid var(--border-invisible)',
       display: 'flex',
       flexDirection: 'column',
@@ -43,17 +59,13 @@ export default function Sidebar() {
               fontWeight: 500,
               borderRadius: '4px',
               transition: 'all 0.3s ease',
-              // Active: White text & subtle background. Inactive: Muted gray text.
               color: isActive ? 'var(--white)' : 'var(--gray-600)',
               background: isActive ? 'rgba(255, 255, 255, 0.02)' : 'transparent',
             })}
-            // We use className for the hover effects defined in CSS, but React Router's inline style
-            // handles the dynamic isActive colors cleaner.
             className="nav-link"
           >
             {({ isActive }) => (
               <>
-                {/* The 2px accent line that appears on active or hover */}
                 <span style={{
                   position: 'absolute',
                   left: 0,
@@ -73,9 +85,53 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Muted footer */}
-      <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>
-        Darshan © 2026
+      {/* --- Muted Footer & Auth Toggle --- */}
+      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {/* The Admin Auth Toggle */}
+        <button
+          onClick={handleAdminToggle}
+          className="text-mono"
+          style={{
+            background: isAdmin ? 'rgba(255,50,50,0.05)' : 'rgba(255,255,255,0.03)',
+            color: isAdmin ? 'var(--red)' : 'var(--gray-400)',
+            border: '1px solid',
+            borderColor: isAdmin ? 'rgba(255,50,50,0.2)' : 'var(--border-invisible)',
+            padding: '0.6rem',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '0.75rem',
+            transition: 'all 0.2s ease',
+            textAlign: 'center',
+            textTransform: 'uppercase'
+          }}
+          onMouseEnter={(e) => { e.target.style.background = isAdmin ? 'rgba(255,50,50,0.1)' : 'rgba(255,255,255,0.08)' }}
+          onMouseLeave={(e) => { e.target.style.background = isAdmin ? 'rgba(255,50,50,0.05)' : 'rgba(255,255,255,0.03)' }}
+        >
+          {isAdmin ? 'End Admin Session' : 'Admin Login'}
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>
+            Darshan © 2026
+          </div>
+          
+          {/* The Breathing Connection Dot */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--gray-600)' }} className="text-mono">
+              {isConnected ? 'LIVE' : 'SYNCING'}
+            </span>
+            <div style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: isConnected ? 'var(--green)' : 'var(--gray-600)',
+              boxShadow: isConnected ? '0 0 8px rgba(34,197,94,0.4)' : 'none',
+              animation: isConnected ? 'skeletonBreathe 2s infinite' : 'none'
+            }} />
+          </div>
+        </div>
+
       </div>
     </div>
   );

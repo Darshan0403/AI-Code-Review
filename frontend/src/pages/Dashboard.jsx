@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCountUp } from '../hooks/useCountUp';
+import LiveFeed from '../components/LiveFeed';
+import { useWebSocket } from '../hooks/useWebSocket'; 
 
-// --- Subcomponent: The Invisible Stat Card ---
 const StatCard = ({ title, value, delay, isAlert, suffix = "" }) => {
-  const displayValue = useCountUp(value);
+  const displayValue = useCountUp(value || 0);
 
   return (
     <div className="void-card animate-in" style={{ animationDelay: `${delay}ms` }}>
@@ -20,52 +21,101 @@ const StatCard = ({ title, value, delay, isAlert, suffix = "" }) => {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  
-  // Mock Data (Matches your Go API)
-  const stats = { total_reviews: 142, total_comments: 843, critical_bugs: 12, avg_time: 2.4 };
-  const severityDist = { error: 15, warning: 55, info: 30 }; // Percentages
-  
-  const recentReviews = [
-    { id: '1', repo: 'Darshan0403/ai-code-review-test-repo', pr: 42, comments: 14, worstSeverity: 'red', time: '10m ago' },
-    { id: '2', repo: 'Darshan0403/core-api', pr: 18, comments: 5, worstSeverity: 'amber', time: '1h ago' },
-    { id: '3', repo: 'Darshan0403/frontend-web', pr: 99, comments: 2, worstSeverity: 'blue', time: '3h ago' },
-    { id: '4', repo: 'Darshan0403/infrastructure', pr: 7, comments: 0, worstSeverity: 'green', time: '5h ago' },
-  ];
 
-  // Animate the severity strip on load
+  const [stats, setStats] = useState({ total_reviews: 0, total_comments: 0, total_repos: 0, avg_comments_per_review: 0 });
+  const [recentReviews, setRecentReviews] = useState([]);
   const [barWidths, setBarWidths] = useState({ error: 0, warning: 0, info: 0 });
-  useEffect(() => {
-    // Slight delay to allow page transition to finish before expanding
-    const timer = setTimeout(() => setBarWidths(severityDist), 300);
-    return () => clearTimeout(timer);
+
+  // 1. Hook into the WebSocket
+  const { messages } = useWebSocket('ws://localhost:8083/ws/live');
+
+  // 2. Extracted fetch logic
+  const fetchDashboardData = useCallback(() => {
+    const token = localStorage.getItem('void_token');
+    const headers = token 
+      ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      : { 'Content-Type': 'application/json' };
+
+    fetch('http://localhost:8083/api/v1/analytics/dashboard', { headers })
+      .then(res => res.json())
+      .then(data => {
+        if (!data) return;
+
+        if (data.stats) {
+          // --- FIX 1: Rounding the Average Comments to 1 decimal place ---
+          const rawAvg = data.stats.AvgCommentsPerReview ?? data.stats.avg_comments_per_review ?? 0;
+
+          setStats({
+            total_reviews: data.stats.TotalReviews ?? data.stats.total_reviews ?? 0,
+            total_comments: data.stats.TotalComments ?? data.stats.total_comments ?? 0,
+            total_repos: data.stats.TotalRepos ?? data.stats.total_repos ?? 0,
+            avg_comments_per_review: Number(Number(rawAvg).toFixed(1)) 
+          });
+
+          // --- FIX 2: Dynamic Severity Ratio Calculation ---
+          // Looking for severity counts. If the Go backend doesn't send them yet, defaults to 0.
+          const errs = data.stats.error_count ?? data.stats.ErrorCount ?? 0;
+          const warns = data.stats.warning_count ?? data.stats.WarningCount ?? 0;
+          const infos = data.stats.info_count ?? data.stats.InfoCount ?? 0;
+          
+          const totalSev = errs + warns + infos;
+
+          // Short timeout ensures the React DOM renders the empty bars first, 
+          // allowing the CSS transition to "slide" them in beautifully.
+          setTimeout(() => {
+            if (totalSev > 0) {
+              setBarWidths({
+                error: (errs / totalSev) * 100,
+                warning: (warns / totalSev) * 100,
+                info: (infos / totalSev) * 100
+              });
+            } else {
+              // Graceful fallback for 0 errors
+              setBarWidths({ error: 0, warning: 0, info: 0 });
+            }
+          }, 150);
+        }
+
+        if (data.recent_reviews) {
+          setRecentReviews(data.recent_reviews.slice(0, 4));
+        }
+      })
+      .catch(err => console.error("Dashboard fetch error:", err));
   }, []);
+
+  // 3. Initial Load Effect
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]); // Removed the hardcoded timeout from here!
+
+  // 4. WebSocket Listener Effect
+  useEffect(() => {
+    if (messages.length > 0) {
+      const latestMessage = messages[messages.length - 1];
+      if (latestMessage.type === 'review_completed' || latestMessage.status === 'completed') {
+        console.log("Matrix Update: Review completed. Refreshing Dashboard Stats...");
+        fetchDashboardData();
+      }
+    }
+  }, [messages, fetchDashboardData]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4rem' }}>
-      
-      {/* --- Top Section: Stats & Strip --- */}
       <section>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
           <StatCard title="Total Reviews" value={stats.total_reviews} delay={0} />
           <StatCard title="AI Comments" value={stats.total_comments} delay={80} />
-          <StatCard title="Critical Bugs" value={stats.critical_bugs} delay={160} isAlert={true} />
-          <StatCard title="Avg Time" value={stats.avg_time} suffix="s" delay={240} />
+          <StatCard title="Monitored Repos" value={stats.total_repos} delay={160} />
+          <StatCard title="Avg Comments/PR" value={stats.avg_comments_per_review} delay={240} />
         </div>
 
-        {/* The Minimal Severity Strip */}
         <div className="animate-in" style={{ animationDelay: '320ms' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-            <span className="text-muted">Severity Ratio</span>
+            <span className="text-muted">Severity Ratio</span> 
             <div style={{ display: 'flex', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span className="dot dot-red" /> <span className="text-muted">Error</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span className="dot dot-amber" /> <span className="text-muted">Warn</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span className="dot dot-blue" /> <span className="text-muted">Info</span>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-red" /> <span className="text-muted">Error</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-amber" /> <span className="text-muted">Warn</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-blue" /> <span className="text-muted">Info</span></div>
             </div>
           </div>
           
@@ -77,48 +127,35 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* --- Bottom Section: Recent Reviews --- */}
+      <section className="animate-in" style={{ animationDelay: '360ms' }}>
+        <LiveFeed />
+      </section>
+
       <section>
         <div className="animate-in" style={{ animationDelay: '400ms', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.5rem' }}>
           <h2 className="text-large">Recent Reviews</h2>
           <span className="text-muted">Showing last 4</span>
         </div>
-        
+
         <div className="stagger">
           {recentReviews.length > 0 ? (
             recentReviews.map((review, i) => (
-              <div 
-                key={review.id}
-                onClick={() => navigate(`/reviews/${review.id}`)}
-                className="void-row animate-in"
-                // Delays stack on top of the section delay
-                style={{ animationDelay: `${480 + (i * 80)}ms` }}
-              >
-                {/* Left side: Severity Dot + Repo Name */}
+              <div key={review.id} onClick={() => navigate(`/reviews/${review.id}`)} className="void-row animate-in" style={{ animationDelay: `${480 + (i * 80)}ms`, cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1 }}>
-                  <div className={`dot dot-${review.worstSeverity}`} />
-                  <span className="text-mono" style={{ color: 'var(--gray-400)' }}>{review.repo}</span>
+                  <div className="dot dot-blue" />
+                  <span className="text-mono" style={{ color: 'var(--gray-400)' }}>{review.repo_full_name}</span>
                 </div>
-
-                {/* Right side: PR + Comments + Time */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '3rem' }}>
-                  <span className="text-mono" style={{ color: 'var(--white)' }}>#{review.pr}</span>
-                  <span className="text-muted" style={{ width: '80px', textAlign: 'right' }}>
-                    {review.comments} {review.comments === 1 ? 'issue' : 'issues'}
-                  </span>
-                  <span className="text-muted" style={{ width: '60px', textAlign: 'right' }}>{review.time}</span>
+                  <span className="text-mono" style={{ color: 'var(--white)' }}>#{review.pr_number}</span>
+                  <span className="text-muted" style={{ width: '150px', textAlign: 'right' }}>{new Date(review.created_at).toLocaleString()}</span>
                 </div>
               </div>
             ))
           ) : (
-            /* The Void Empty State */
-            <div className="animate-in" style={{ padding: '4rem 0', textAlign: 'center', animationDelay: '480ms' }}>
-              <span className="text-muted">No reviews yet.</span>
-            </div>
+            <div className="animate-in" style={{ padding: '4rem 0', textAlign: 'center', animationDelay: '480ms' }}><span className="text-muted">No reviews yet.</span></div>
           )}
         </div>
       </section>
-      
     </div>
   );
 }

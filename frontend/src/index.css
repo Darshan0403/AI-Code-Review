@@ -63,7 +63,6 @@ body {
   inset: -1px;
   border-radius: 13px;
   padding: 1px;
-  /* 1. Create a massive, wide gradient */
   background: linear-gradient(
     90deg,
     var(--accent-1),
@@ -72,14 +71,13 @@ body {
     var(--accent-1)
   );
   background-size: 300% 100%;
-  
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   opacity: 0;
   transition: opacity 0.4s ease;
-  /* 2. Slide it horizontally (GPU accelerated) */
   animation: smoothGradient 4s linear infinite;
+  pointer-events: none; 
 }
 
 @keyframes smoothGradient {
