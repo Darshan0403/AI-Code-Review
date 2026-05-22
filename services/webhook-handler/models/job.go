@@ -2,6 +2,8 @@ package models
 
 type WebhookPayload struct {
 	Action      string      `json:"action"`
+	Before      string      `json:"before"`
+	After       string      `json:"after"`
 	PullRequest PullRequest `json:"pull_request"`
 	Repository  Repository  `json:"repository"`
 }
@@ -28,9 +30,13 @@ type Message struct {
 }
 
 type ReviewJob struct {
-	Repo    string `json:"repo"`
-	PRNum   int    `json:"pr_number"`
-	DiffURL string `json:"diff_url"`
-	HeadSHA string `json:"head_sha"`
-	BaseSHA string `json:"base_sha"`
+	Repo               string `json:"repo"`
+	PRNum              int    `json:"pr_number"`
+	Action             string `json:"action"`
+	Before             string `json:"before"`
+	After              string `json:"after"`
+	DiffURL            string `json:"diff_url"`
+	HeadSHA            string `json:"head_sha"`
+	BaseSHA            string `json:"base_sha"`
+	CustomInstructions string `json:"custom_instructions"`
 }
