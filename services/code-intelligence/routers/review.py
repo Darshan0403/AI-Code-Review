@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from models.schema import ReviewRequest, ReviewResponse
 from services.llm import call_llm
@@ -9,20 +10,32 @@ router = APIRouter()
 async def review_code(request: ReviewRequest):
     print(f"Received review request for {request.repo} PR #{request.pr_number} - File: {request.file_path}")
     
-    # 1. Figure out what language we are reviewing
+    # --- NEW: Safety Check for Massive Individual Files ---
+    if len(request.diff_content.splitlines()) > 600:
+        print(f"Skipping {request.file_path}: Diff too large (>600 lines).")
+        return ReviewResponse(comments=[], is_lgtm=True)
+    # ------------------------------------------------------
+
     language = detect_language(request.file_path)
     
-    # 2. Build the strict prompt
-    prompt = build_review_prompt(request.file_path, request.diff_content, language)
+    prompt = build_review_prompt(
+        request.file_path, 
+        request.diff_content, 
+        language,
+        request.custom_instructions
+    )
     
     try:
-        # 3. Send it to Groq!
-        raw_response = await call_llm(prompt)
+        # --- NEW: The 25-Second Timeout Shield ---
+        try:
+            raw_response = await asyncio.wait_for(call_llm(prompt), timeout=25.0)
+        except asyncio.TimeoutError:
+            print(f"LLM Timeout on {request.file_path}. Skipping file.")
+            return ReviewResponse(comments=[], is_lgtm=True)
+        # -----------------------------------------
         
-        # 4. Parse the unstructured text into clean JSON
         comments = parse_review_response(raw_response, request.file_path)
         
-        # 5. Package it up and send it back to Go
         return ReviewResponse(
             comments=comments,
             is_lgtm=len(comments) == 0

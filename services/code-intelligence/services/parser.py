@@ -1,7 +1,22 @@
 from models.schema import ReviewComment
 import re
 
-def build_review_prompt(file_path: str, diff_content: str, language: str) -> str:
+# --- NEW: Added custom_instructions parameter ---
+def build_review_prompt(file_path: str, diff_content: str, language: str, custom_instructions: str = "") -> str:
+    
+    # --- NEW: Dynamically build the Custom Rules block ---
+    custom_rules_block = ""
+    if custom_instructions and custom_instructions.strip():
+        custom_rules_block = f"""
+=================================================
+🚨 REPOSITORY OWNER'S CUSTOM INSTRUCTIONS (PRIORITY OVERRIDE) 🚨
+You MUST strictly obey the following rules for this specific repository. 
+These rules override all other standard guidelines:
+
+{custom_instructions.strip()}
+=================================================
+"""
+
     return f"""You are a strict, senior software engineer performing a code review.
 
 FILE: {file_path}
@@ -15,7 +30,7 @@ Example:
 
 CODE CHANGES:
 {diff_content}
-
+{custom_rules_block}
 Review this code change and provide specific, actionable feedback.
 Focus ONLY on:
 1. Bugs or logic errors
@@ -47,7 +62,6 @@ def detect_language(file_path: str) -> str:
     return ext_map.get(ext, "Unknown")
 
 def parse_review_response(raw: str, file_path: str) -> list[ReviewComment]:
-    # If the AI says it Looks Good To Me, return an empty list
     if raw.strip().upper() == "LGTM":
         return []
     
@@ -67,7 +81,6 @@ def parse_review_response(raw: str, file_path: str) -> list[ReviewComment]:
             line = line.strip()
             if line.startswith("LINE:"):
                 try:
-                    # Extract numbers only to prevent crashes if AI outputs "LINE: 5 "
                     line_num_str = line.split(":", 1)[1].strip()
                     line_num = int(re.sub(r'\D', '', line_num_str)) 
                 except ValueError:

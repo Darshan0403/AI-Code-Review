@@ -6,6 +6,7 @@ class ReviewRequest(BaseModel):
     diff_content: str
     pr_number: int
     repo: str
+    custom_instructions: str = ""  
 
 class ReviewComment(BaseModel):
     file_path: str
