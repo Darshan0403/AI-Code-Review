@@ -76,3 +76,17 @@ func (h *RepoHandler) GetRepoStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }
+
+// TogglePause handles PUT /api/v1/repos/{id}/toggle-pause
+func (h *RepoHandler) TogglePause(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "id")
+
+	newState, err := h.DB.ToggleRepoPause(r.Context(), repoID)
+	if err != nil {
+		http.Error(w, "Failed to toggle repository status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"is_paused": newState})
+}
