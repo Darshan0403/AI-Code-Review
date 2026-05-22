@@ -32,26 +32,37 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Connect to Redis
+	// 1. Connect to Redis (Dynamic URL)
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		slog.Warn("REDIS_ADDR environment variable not set! Falling back to localhost:6379.")
+		redisAddr = "localhost:6379"
+	}
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr: redisAddr,
 	})
 	defer rdb.Close()
 
-	// Connect to PostgreSQL
+	// 2. Connect to PostgreSQL (Dynamic URL)
 	slog.Info("Connecting to PostgreSQL...")
-	dbConn, err := db.NewDB(ctx, "postgres://postgres:password@localhost:5432/codereview")
+	dbURL := os.Getenv("POSTGRES_DSN")
+	if dbURL == "" {
+		slog.Warn("POSTGRES_DSN environment variable not set! Falling back to localhost for local dev.")
+		dbURL = "postgres://admin:supersecretpassword@localhost:5432/codesense?sslmode=disable"
+	}
+
+	dbConn, err := db.NewDB(ctx, dbURL)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
 	}
 	defer dbConn.Conn.Close(ctx) // Close cleanly on shutdown
 
-	// Initialize GitHub Client
+	// 3. Initialize GitHub Client
 	slog.Info("Initializing GitHub client...")
 	ghClient := localgh.NewClient(ctx, githubToken)
 
-	// Start the worker (passing our new dbConn!)
+	// 4. Start the worker
 	worker.Start(ctx, rdb, ghClient, dbConn)
 
 	slog.Info("Main thread shutting down. Giving workers 5 seconds to finish...")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -20,12 +21,12 @@ import (
 
 const QueueName = "review_jobs"
 
-// --- NEW: Python API Structs ---
 type AIReviewRequest struct {
-	FilePath    string `json:"file_path"`
-	DiffContent string `json:"diff_content"`
-	PRNumber    int    `json:"pr_number"`
-	Repo        string `json:"repo"`
+	FilePath           string `json:"file_path"`
+	DiffContent        string `json:"diff_content"`
+	PRNumber           int    `json:"pr_number"`
+	Repo               string `json:"repo"`
+	CustomInstructions string `json:"custom_instructions"`
 }
 
 type AIReviewComment struct {
@@ -40,23 +41,57 @@ type AIReviewResponse struct {
 	IsLGTM   bool              `json:"is_lgtm"`
 }
 
-// getAIReview calls your Python FastAPI service
 func getAIReview(req AIReviewRequest) (*AIReviewResponse, error) {
 	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Call the Python service!
-	resp, err := http.Post("http://localhost:8082/api/review", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
+	aiBaseURL := os.Getenv("CODE_INTEL_URL")
+	if aiBaseURL == "" {
+		slog.Warn("CODE_INTEL_URL not set, falling back to Docker network name")
+		aiBaseURL = "http://code-intelligence:8082"
+	}
+	aiURL := aiBaseURL + "/api/review"
+
+	var resp *http.Response
+	var lastErr error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, lastErr = http.Post(aiURL, "application/json", bytes.NewBuffer(jsonData))
+
+		if lastErr == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		slog.Warn("AI Engine request failed. Retrying...",
+			"attempt", attempt,
+			"status", func() int {
+				if resp != nil {
+					return resp.StatusCode
+				}
+				return 0
+			}(),
+			"error", lastErr)
+
+		if attempt < maxRetries {
+			backoffDuration := time.Duration(1<<attempt) * time.Second
+			time.Sleep(backoffDuration)
+		}
+	}
+
+	if lastErr != nil {
+		return nil, fmt.Errorf("AI engine failed after %d attempts: %w", maxRetries, lastErr)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("AI engine consistently returned bad status after %d attempts", maxRetries)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("python API returned status: %d", resp.StatusCode)
-	}
 
 	var result AIReviewResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -65,8 +100,6 @@ func getAIReview(req AIReviewRequest) (*AIReviewResponse, error) {
 
 	return &result, nil
 }
-
-// -------------------------------
 
 func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbConn *db.DB) {
 	slog.Info("Worker started. Listening for jobs...")
@@ -94,7 +127,7 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 				continue
 			}
 
-			slog.Info("Picked up new job!", "repo", job.Repo, "pr", job.PRNum)
+			slog.Info("Picked up new job!", "repo", job.Repo, "pr", job.PRNum, "action", job.Action)
 
 			parts := strings.Split(job.Repo, "/")
 			if len(parts) != 2 {
@@ -104,11 +137,19 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 			owner := parts[0]
 			repoName := parts[1]
 
-			slog.Info("Fetching diff for PR", "owner", owner, "repoName", repoName, "pr", job.PRNum)
+			var diff string
+			var diffErr error
 
-			diff, err := ghClient.FetchPRDiff(ctx, owner, repoName, job.PRNum)
-			if err != nil {
-				slog.Error("Failed to fetch diff", "error", err)
+			if job.Action == "synchronize" && job.Before != "" && job.After != "" {
+				slog.Info("Fetching INCREMENTAL diff for push", "before", job.Before, "after", job.After)
+				diff, diffErr = ghClient.FetchCommitDiff(ctx, owner, repoName, job.Before, job.After)
+			} else {
+				slog.Info("Fetching FULL diff for new PR", "pr", job.PRNum)
+				diff, diffErr = ghClient.FetchPRDiff(ctx, owner, repoName, job.PRNum)
+			}
+
+			if diffErr != nil {
+				slog.Error("Failed to fetch diff", "error", diffErr)
 				continue
 			}
 
@@ -118,39 +159,46 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 				continue
 			}
 
+			// --- NEW: Large PR Throttle (Max 15 files) ---
+			const maxFilesToReview = 15
+			if len(parsedFiles) > maxFilesToReview {
+				slog.Warn("PR exceeds file limit. Truncating.",
+					"repo", job.Repo,
+					"total_files", len(parsedFiles),
+					"reviewed", maxFilesToReview)
+				parsedFiles = parsedFiles[:maxFilesToReview]
+			}
+			// ----------------------------------------------
+
 			var allGitHubComments []*github.DraftReviewComment
 			var allAIComments []AIReviewComment
 
-			// Loop through every file changed in the PR
-			// Loop through every file changed in the PR
 			for _, file := range parsedFiles {
 				if len(file.AddedLines) == 0 {
-					continue // Skip files with no new lines
+					continue
 				}
 
-				// --- NEW: Create a map of valid lines for our Safety Net ---
 				validLines := make(map[int]bool)
 
-				// Reconstruct a simplified diff to send to Python, WITH line numbers!
 				var diffBuilder strings.Builder
 				for _, line := range file.AddedLines {
-					validLines[line.Number] = true // Mark this line as valid!
+					validLines[line.Number] = true
 					diffBuilder.WriteString(fmt.Sprintf("%d: + %s\n", line.Number, line.Content))
 				}
 
 				slog.Info("Asking AI to review file...", "file", file.FileName)
 
-				// Make the API call to Python
 				aiResponse, err := getAIReview(AIReviewRequest{
-					FilePath:    file.FileName,
-					DiffContent: diffBuilder.String(),
-					PRNumber:    job.PRNum,
-					Repo:        job.Repo,
+					FilePath:           file.FileName,
+					DiffContent:        diffBuilder.String(),
+					PRNumber:           job.PRNum,
+					Repo:               job.Repo,
+					CustomInstructions: job.CustomInstructions,
 				})
 
 				if err != nil {
 					slog.Error("Failed to get AI review", "error", err)
-					continue // Skip to next file if AI fails
+					continue
 				}
 
 				if aiResponse.IsLGTM {
@@ -158,12 +206,7 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 					continue
 				}
 
-				// Convert Python API comments to GitHub API comments
 				for _, aiComment := range aiResponse.Comments {
-
-					// --- NEW: THE SAFETY NET ---
-					// If the AI gave us a line number that GitHub will reject,
-					// we snap it to the first valid line in the file.
 					if !validLines[aiComment.Line] {
 						slog.Warn("AI hallucinated an invalid line number. Snapping to fallback.",
 							"bad_line", aiComment.Line,
@@ -171,9 +214,7 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 
 						aiComment.Line = file.AddedLines[0].Number
 					}
-					// ---------------------------
 
-					// Add a cool emoji based on severity
 					emoji := "💡"
 					if aiComment.Severity == "error" {
 						emoji = "🚨"
@@ -187,7 +228,6 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 				}
 			}
 
-			// POST TO GITHUB!
 			if len(allGitHubComments) > 0 {
 				slog.Info("Posting AI review to GitHub...")
 				err = ghClient.PostReviewComments(ctx, owner, repoName, job.PRNum, allGitHubComments)
@@ -197,14 +237,12 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 				}
 				slog.Info("Review posted successfully! Go check GitHub! 🎉")
 
-				// SAVE TO DATABASE
 				dbID, err := dbConn.SaveReview(ctx, job.Repo, job.PRNum, "unknown_sha")
 				if err != nil {
 					slog.Error("Failed to save review to database", "error", err)
 				} else {
 					slog.Info("Successfully saved review to Postgres!", "db_id", dbID)
 
-					// --- NEW: Save every individual comment to the DB ---
 					for _, comment := range allAIComments {
 						err := dbConn.SaveComment(ctx, dbID, comment.FilePath, comment.Line, comment.Severity, comment.Comment)
 						if err != nil {
@@ -212,7 +250,19 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 						}
 					}
 					slog.Info("Successfully saved all comments to Postgres!")
-					// ----------------------------------------------------
+
+					wsMessage := map[string]interface{}{
+						"type":           "REVIEW_COMPLETED",
+						"repo":           job.Repo,
+						"pr_number":      job.PRNum,
+						"status":         "success",
+						"comments_count": len(allAIComments),
+						"timestamp":      time.Now().Format(time.RFC3339),
+					}
+					wsBytes, _ := json.Marshal(wsMessage)
+
+					rdb.Publish(ctx, "review:progress", wsBytes)
+					slog.Info("Broadcasted success to WebSockets!")
 				}
 
 			} else {

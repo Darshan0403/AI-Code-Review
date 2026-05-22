@@ -1,6 +1,6 @@
 module github.com/Darshan0403/ai-code-review/services/review-worker
 
-go 1.26.3
+go 1.25.0
 
 require (
 	github.com/google/go-github/v62 v62.0.0

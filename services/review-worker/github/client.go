@@ -24,15 +24,26 @@ func NewClient(ctx context.Context, token string) *Client {
 	}
 }
 
-// FetchPRDiff retrieves the code changes (the diff) for a specific PR
+// FetchPRDiff retrieves the FULL code changes for a brand new PR
 func (c *Client) FetchPRDiff(ctx context.Context, owner, repo string, prNum int) (string, error) {
-	// The GitHub API allows us to request the "diff" version of a PR by
-	// setting the Accept header to "application/vnd.github.diff"
 	opt := &github.RawOptions{Type: github.Diff}
 
 	diff, resp, err := c.GitHub.PullRequests.GetRaw(ctx, owner, repo, prNum, *opt)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch diff: %w", err)
+		return "", fmt.Errorf("failed to fetch full PR diff: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return diff, nil
+}
+
+// --- NEW: FetchCommitDiff retrieves ONLY the changes between two specific commits ---
+func (c *Client) FetchCommitDiff(ctx context.Context, owner, repo, baseSHA, headSHA string) (string, error) {
+	opt := github.RawOptions{Type: github.Diff}
+
+	diff, resp, err := c.GitHub.Repositories.CompareCommitsRaw(ctx, owner, repo, baseSHA, headSHA, opt)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch incremental diff: %w", err)
 	}
 	defer resp.Body.Close()
 
