@@ -43,6 +43,9 @@ services:
       - "8082:8082"
     env_file:
       - .env
+    volumes: 
+      - ./test_repo:/test_repo
+      - hf_cache:/root/.cache/huggingface
     depends_on:
       - chromadb
 
@@ -93,3 +96,4 @@ services:
 volumes:
   postgres_data:
   chroma_data:
+  hf_cache:

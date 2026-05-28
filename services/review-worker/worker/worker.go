@@ -89,7 +89,7 @@ func getAIReview(req AIReviewRequest) (*AIReviewResponse, error) {
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("AI engine failed after %d attempts: %w", lastErr)
+		return nil, fmt.Errorf("AI engine failed after n attempts: %w", lastErr)
 	}
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AI engine consistently returned bad status after %d attempts", maxRetries)
