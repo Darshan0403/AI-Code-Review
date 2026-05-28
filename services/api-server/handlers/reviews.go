@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -41,9 +42,11 @@ func (h *ReviewHandler) ListReviews(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetReviewDetail handles GET /api/v1/reviews/{id}
+// GetReviewDetail handles GET /api/v1/reviews/{id}
 func (h *ReviewHandler) GetReviewDetail(w http.ResponseWriter, r *http.Request) {
 	reviewID := chi.URLParam(r, "id")
 
+	// 1. Fetch the review data
 	review, comments, err := h.DB.GetReviewWithComments(r.Context(), reviewID)
 	if err != nil {
 		slog.Error("Database error in GetReviewWithComments", "review_id", reviewID, "error", err)
@@ -51,11 +54,19 @@ func (h *ReviewHandler) GetReviewDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// 2. PRODUCT UPGRADE: Mark as 'read' in the DB automatically
+	// We run this in a goroutine so it doesn't block the API response time
+	go func(id string) {
+		err := h.DB.MarkReviewAsRead(context.Background(), id)
+		if err != nil {
+			slog.Warn("Failed to mark review as read", "review_id", id, "error", err)
+		}
+	}(reviewID)
+
 	if comments == nil {
 		comments = []db.Comment{}
 	}
 
-	// Package it all into one nice JSON object for the frontend
 	response := map[string]interface{}{
 		"review":   review,
 		"comments": comments,

@@ -162,10 +162,25 @@ func main() {
 
 		analyticsHandler := &handlers.AnalyticsHandler{DB: database}
 		r.Get("/analytics/dashboard", analyticsHandler.GetDashboard)
+		r.Get("/analytics/top-issues", analyticsHandler.GetTopIssues)
+		r.Get("/analytics/trends", analyticsHandler.GetTrends)
 
 		repoHandler := &handlers.RepoHandler{DB: database}
+
+		// Static Routes First
 		r.Get("/repos", repoHandler.ListRepos)
+		r.Post("/repos/explain", repoHandler.ExplainCode)
+		r.Post("/search-similar", repoHandler.SearchSimilar)
+
+		// Dynamic (Wildcard) Routes Second
 		r.Get("/repos/{id}/stats", repoHandler.GetRepoStats)
+		r.Get("/repos/{id}/summary", repoHandler.GetRepoSummary)
+		r.Get("/repos/{id}/indexed-files", repoHandler.GetIndexedFiles)
+		r.Delete("/repos/{id}", repoHandler.DeleteRepo)
+
+		feedbackHandler := &handlers.FeedbackHandler{DB: database}
+		r.Post("/feedback", feedbackHandler.SubmitFeedback)
+		r.Get("/repos/{owner}/{repo}/feedback-summary", feedbackHandler.GetRepoFeedbackSummary)
 
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)

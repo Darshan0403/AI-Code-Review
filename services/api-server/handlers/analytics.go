@@ -40,3 +40,40 @@ func (h *AnalyticsHandler) GetDashboard(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// GetTopIssues handles GET /api/v1/analytics/top-issues
+func (h *AnalyticsHandler) GetTopIssues(w http.ResponseWriter, r *http.Request) {
+	issues, err := h.DB.GetTopIssues(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to fetch top issues", http.StatusInternalServerError)
+		return
+	}
+
+	if issues == nil {
+		issues = []db.CategoryCount{} // Prevent null in JSON
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(issues)
+}
+
+// GetTrends handles GET /api/v1/analytics/trends
+func (h *AnalyticsHandler) GetTrends(w http.ResponseWriter, r *http.Request) {
+	trends, err := h.DB.GetTrends(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to fetch trends", http.StatusInternalServerError)
+		return
+	}
+
+	if trends == nil {
+		trends = []db.TrendPoint{} // Prevent null in JSON
+	}
+
+	// Format to match the To-Do list structure
+	response := map[string]interface{}{
+		"reviews_by_day": trends,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
