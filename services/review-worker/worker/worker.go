@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,10 +31,12 @@ type AIReviewRequest struct {
 }
 
 type AIReviewComment struct {
-	FilePath string `json:"file_path"`
-	Line     int    `json:"line"`
-	Severity string `json:"severity"`
-	Comment  string `json:"comment"`
+	FilePath    string `json:"file_path"`
+	Line        int    `json:"line_number"`
+	Severity    string `json:"severity"`
+	Category    string `json:"category"`
+	Comment     string `json:"comment_text"`
+	CodeSnippet string `json:"code_snippet"` // <-- FIX: Added CodeSnippet here
 }
 
 type AIReviewResponse struct {
@@ -86,15 +89,23 @@ func getAIReview(req AIReviewRequest) (*AIReviewResponse, error) {
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("AI engine failed after %d attempts: %w", maxRetries, lastErr)
+		return nil, fmt.Errorf("AI engine failed after %d attempts: %w", lastErr)
 	}
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AI engine consistently returned bad status after %d attempts", maxRetries)
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("================ RAW AI RESPONSE ================")
+	slog.Info(string(bodyBytes))
+	slog.Info("=================================================")
+
 	var result AIReviewResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, err
 	}
 
@@ -186,11 +197,13 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 					diffBuilder.WriteString(fmt.Sprintf("%d: + %s\n", line.Number, line.Content))
 				}
 
+				diffStr := diffBuilder.String()
+
 				slog.Info("Asking AI to review file...", "file", file.FileName)
 
 				aiResponse, err := getAIReview(AIReviewRequest{
 					FilePath:           file.FileName,
-					DiffContent:        diffBuilder.String(),
+					DiffContent:        diffStr,
 					PRNumber:           job.PRNum,
 					Repo:               job.Repo,
 					CustomInstructions: job.CustomInstructions,
@@ -207,19 +220,29 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 				}
 
 				for _, aiComment := range aiResponse.Comments {
+					if aiComment.FilePath != file.FileName {
+						slog.Warn("AI hallucinated file path. Overriding.",
+							"bad_path", aiComment.FilePath,
+							"good_path", file.FileName)
+						aiComment.FilePath = file.FileName
+					}
+
+					// 1. Line Number Hallucination Fix
 					if !validLines[aiComment.Line] {
 						slog.Warn("AI hallucinated an invalid line number. Snapping to fallback.",
 							"bad_line", aiComment.Line,
 							"snapped_line", file.AddedLines[0].Number)
-
 						aiComment.Line = file.AddedLines[0].Number
 					}
 
-					emoji := "💡"
+					// 2. Diff Display Fix: Extract the contextual code snippet
+					aiComment.CodeSnippet = extractSnippet(diffStr, aiComment.Line, 2)
+
+					emoji := ""
 					if aiComment.Severity == "error" {
-						emoji = "🚨"
+						emoji = ""
 					} else if aiComment.Severity == "warning" {
-						emoji = "⚠️"
+						emoji = ""
 					}
 
 					formattedBody := fmt.Sprintf("%s **[%s]** %s", emoji, strings.ToUpper(aiComment.Severity), aiComment.Comment)
@@ -235,7 +258,7 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 					slog.Error("Failed to post review", "error", err)
 					continue
 				}
-				slog.Info("Review posted successfully! Go check GitHub! 🎉")
+				slog.Info("Review posted successfully! Go check GitHub! ")
 
 				dbID, err := dbConn.SaveReview(ctx, job.Repo, job.PRNum, "unknown_sha")
 				if err != nil {
@@ -244,7 +267,8 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 					slog.Info("Successfully saved review to Postgres!", "db_id", dbID)
 
 					for _, comment := range allAIComments {
-						err := dbConn.SaveComment(ctx, dbID, comment.FilePath, comment.Line, comment.Severity, comment.Comment)
+						// FIX: Now passing the populated CodeSnippet to the database
+						err := dbConn.SaveComment(ctx, dbID, comment.FilePath, comment.Line, comment.Severity, comment.Category, comment.Comment, comment.CodeSnippet)
 						if err != nil {
 							slog.Error("Failed to save comment to DB", "error", err)
 						}
@@ -272,4 +296,54 @@ func Start(ctx context.Context, rdb *redis.Client, ghClient *localgh.Client, dbC
 			slog.Info("Finished processing job!", "pr", job.PRNum)
 		}
 	}
+}
+
+// extractSnippet pulls the target line and surrounding context safely
+// It has been upgraded to explicitly search for the "LineNumber: +" prefix
+// so it doesn't crash on array bounds issues.
+func extractSnippet(diffContent string, targetLine int, contextLines int) string {
+	lines := strings.Split(diffContent, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	targetIndex := -1
+	targetPrefix := fmt.Sprintf("%d: +", targetLine)
+
+	for i, line := range lines {
+		if strings.HasPrefix(line, targetPrefix) {
+			targetIndex = i
+			break
+		}
+	}
+
+	// If the AI somehow requested a line that doesn't strictly match the prefix,
+	// just return the raw diff content as a graceful fallback.
+	if targetIndex == -1 {
+		return diffContent
+	}
+
+	start := targetIndex - contextLines
+	if start < 0 {
+		start = 0
+	}
+
+	end := targetIndex + contextLines + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	// Clean up the snippet to remove the "14: + " prefix for cleaner UI rendering
+	var cleanSnippet []string
+	for _, rawLine := range lines[start:end] {
+		// Strip the "Number: + " part
+		parts := strings.SplitN(rawLine, ": + ", 2)
+		if len(parts) == 2 {
+			cleanSnippet = append(cleanSnippet, parts[1])
+		} else {
+			cleanSnippet = append(cleanSnippet, rawLine)
+		}
+	}
+
+	return strings.Join(cleanSnippet, "\n")
 }
