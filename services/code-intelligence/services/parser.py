@@ -9,7 +9,7 @@ def build_review_prompt(file_path: str, diff_content: str, language: str, custom
     if custom_instructions and custom_instructions.strip():
         custom_rules_block = f"""
 =================================================
-🚨 REPOSITORY OWNER'S CUSTOM INSTRUCTIONS (PRIORITY OVERRIDE) 🚨
+ REPOSITORY OWNER'S CUSTOM INSTRUCTIONS (PRIORITY OVERRIDE) 
 You MUST strictly obey the following rules for this specific repository. 
 These rules override all other standard guidelines:
 
