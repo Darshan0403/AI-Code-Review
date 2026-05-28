@@ -1,121 +1,153 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useCountUp } from '../hooks/useCountUp';
 import LiveFeed from '../components/LiveFeed';
 import { useWebSocket } from '../hooks/useWebSocket'; 
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const StatCard = ({ title, value, delay, isAlert, suffix = "" }) => {
   const displayValue = useCountUp(value || 0);
 
   return (
-    <div className="void-card animate-in" style={{ animationDelay: `${delay}ms` }}>
-      <h3 className="text-muted" style={{ marginBottom: '0.5rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        {title}
-      </h3>
-      <div className="text-huge" style={{ color: isAlert ? 'var(--red)' : 'var(--white)' }}>
-        {displayValue}{suffix}
+    <div className="animate-in" style={{ animationDelay: `${delay}ms` }}>
+      <div className="void-card gradient-border-card" style={{ padding: '1.25rem', height: '100%' }}>
+        <h3 className="text-muted" style={{ marginBottom: '0.25rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.7rem' }}>
+          {title}
+        </h3>
+        <div className="text-large" style={{ color: isAlert ? 'var(--red)' : 'var(--white)' }}>
+          {displayValue}{suffix}
+        </div>
       </div>
     </div>
   );
 };
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-
-  const [stats, setStats] = useState({ total_reviews: 0, total_comments: 0, total_repos: 0, avg_comments_per_review: 0 });
-  const [recentReviews, setRecentReviews] = useState([]);
+  const [stats, setStats] = useState({ total_reviews: 0, total_comments: 0, total_repos: 0, avg_comments_per_review: 0, acceptance_rate: 0 });
   const [barWidths, setBarWidths] = useState({ error: 0, warning: 0, info: 0 });
+  const [trendData, setTrendData] = useState([]);
+  const [topIssues, setTopIssues] = useState([]);
 
-  // 1. Hook into the WebSocket
   const { messages } = useWebSocket('ws://localhost:8083/ws/live');
+  const token = localStorage.getItem('void_token');
 
-  // 2. Extracted fetch logic
-  const fetchDashboardData = useCallback(() => {
-    const token = localStorage.getItem('void_token');
+  const fetchDashboardData = useCallback(async () => {
     const headers = token 
       ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/json' };
 
-    fetch('http://localhost:8083/api/v1/analytics/dashboard', { headers })
-      .then(res => res.json())
-      .then(data => {
-        if (!data) return;
+    try {
+      const [dashRes, trendsRes, issuesRes] = await Promise.all([
+        fetch('http://localhost:8083/api/v1/analytics/dashboard', { headers }),
+        fetch('http://localhost:8083/api/v1/analytics/trends', { headers }),
+        fetch('http://localhost:8083/api/v1/analytics/top-issues', { headers })
+      ]);
 
-        if (data.stats) {
-          // --- FIX 1: Rounding the Average Comments to 1 decimal place ---
-          const rawAvg = data.stats.AvgCommentsPerReview ?? data.stats.avg_comments_per_review ?? 0;
-
+      if (dashRes.ok) {
+        const data = await dashRes.json();
+        if (data && data.stats) {
+          const s = data.stats;
           setStats({
-            total_reviews: data.stats.TotalReviews ?? data.stats.total_reviews ?? 0,
-            total_comments: data.stats.TotalComments ?? data.stats.total_comments ?? 0,
-            total_repos: data.stats.TotalRepos ?? data.stats.total_repos ?? 0,
-            avg_comments_per_review: Number(Number(rawAvg).toFixed(1)) 
+            total_reviews: s.TotalReviews ?? s.total_reviews ?? 0,
+            total_comments: s.TotalComments ?? s.total_comments ?? 0,
+            total_repos: s.TotalRepos ?? s.total_repos ?? 0,
+            avg_comments_per_review: Number(Number(s.AvgCommentsPerReview ?? s.avg_comments_per_review ?? 0).toFixed(1)),
+            acceptance_rate: Number(Number(s.AcceptanceRate ?? s.acceptance_rate ?? 0).toFixed(1)) 
           });
 
-          // --- FIX 2: Dynamic Severity Ratio Calculation ---
-          // Looking for severity counts. If the Go backend doesn't send them yet, defaults to 0.
-          const errs = data.stats.error_count ?? data.stats.ErrorCount ?? 0;
-          const warns = data.stats.warning_count ?? data.stats.WarningCount ?? 0;
-          const infos = data.stats.info_count ?? data.stats.InfoCount ?? 0;
-          
+          const errs = s.error_count ?? s.ErrorCount ?? 0;
+          const warns = s.warning_count ?? s.WarningCount ?? 0;
+          const infos = s.info_count ?? s.InfoCount ?? 0;
           const totalSev = errs + warns + infos;
 
-          // Short timeout ensures the React DOM renders the empty bars first, 
-          // allowing the CSS transition to "slide" them in beautifully.
           setTimeout(() => {
             if (totalSev > 0) {
-              setBarWidths({
-                error: (errs / totalSev) * 100,
-                warning: (warns / totalSev) * 100,
-                info: (infos / totalSev) * 100
-              });
+              setBarWidths({ error: (errs / totalSev) * 100, warning: (warns / totalSev) * 100, info: (infos / totalSev) * 100 });
             } else {
-              // Graceful fallback for 0 errors
               setBarWidths({ error: 0, warning: 0, info: 0 });
             }
           }, 150);
         }
+      }
 
-        if (data.recent_reviews) {
-          setRecentReviews(data.recent_reviews.slice(0, 4));
+      if (trendsRes.ok) {
+        const tData = await trendsRes.json();
+        const rawTrends = tData.reviews_by_day || tData.ReviewsByDay || [];
+        
+        if (rawTrends.length > 0) {
+          setTrendData(rawTrends.map(t => ({ 
+            date: t.date || t.Date || t.day || t.Day || 'Unknown', 
+            // Map it to 'count' now instead of 'rate'
+            count: t.count ?? t.Count ?? t.rate ?? t.Rate ?? 0 
+          })));
+        } else {
+          // Updated mock data to look like realistic counts instead of percentages
+          setTrendData([
+            { date: 'Mon', count: 4 }, { date: 'Tue', count: 7 }, { date: 'Wed', count: 5 }, { date: 'Thu', count: 12 }, { date: 'Fri', count: 8 }
+          ]);
         }
-      })
-      .catch(err => console.error("Dashboard fetch error:", err));
-  }, []);
+      }
 
-  // 3. Initial Load Effect
+      if (issuesRes.ok) {
+        const rawIssues = await issuesRes.json();
+        
+        if (rawIssues && rawIssues.length > 0) {
+          setTopIssues(rawIssues.map(i => ({ category: i.category || i.Category, count: i.count || i.Count })));
+        } else {
+          setTopIssues([
+            { category: 'security', count: 42 }, { category: 'naming', count: 38 }, { category: 'logic', count: 25 }, { category: 'style', count: 19 }
+          ]);
+        }
+      }
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+    }
+  }, [token]);
+
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]); // Removed the hardcoded timeout from here!
+  }, [fetchDashboardData]);
 
-  // 4. WebSocket Listener Effect
   useEffect(() => {
     if (messages.length > 0) {
       const latestMessage = messages[messages.length - 1];
       if (latestMessage.type === 'review_completed' || latestMessage.status === 'completed') {
-        console.log("Matrix Update: Review completed. Refreshing Dashboard Stats...");
         fetchDashboardData();
       }
     }
   }, [messages, fetchDashboardData]);
 
+  // --- DEBUG LOGS PLACED SAFELY BEFORE THE RETURN ---
+  console.log('DEBUG trendData:', trendData);
+  console.log('DEBUG topIssues:', topIssues);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      
+      <header className="animate-in" style={{ marginBottom: '1rem' }}>
+        <h1 style={{ 
+          fontFamily: 'var(--mono)', color: 'var(--white)', fontSize: '2.2rem', 
+          fontWeight: 600, letterSpacing: '-0.03em', margin: 0 
+        }}>
+          Dashboard 
+        </h1>
+      </header>
+      
       <section>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
           <StatCard title="Total Reviews" value={stats.total_reviews} delay={0} />
           <StatCard title="AI Comments" value={stats.total_comments} delay={80} />
-          <StatCard title="Monitored Repos" value={stats.total_repos} delay={160} />
-          <StatCard title="Avg Comments/PR" value={stats.avg_comments_per_review} delay={240} />
+          <StatCard title="Acceptance Rate" value={stats.acceptance_rate} suffix="%" delay={160} />
+          <StatCard title="Monitored Repos" value={stats.total_repos} delay={240} />
+          <StatCard title="Avg Comments" value={stats.avg_comments_per_review} delay={320} />
         </div>
 
-        <div className="animate-in" style={{ animationDelay: '320ms' }}>
+        <div className="animate-in" style={{ animationDelay: '400ms', marginBottom: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-            <span className="text-muted">Severity Ratio</span> 
+            <span className="text-muted" style={{ fontSize: '0.85rem' }}>Severity Ratio</span> 
             <div style={{ display: 'flex', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-red" /> <span className="text-muted">Error</span></div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-amber" /> <span className="text-muted">Warn</span></div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="dot dot-blue" /> <span className="text-muted">Info</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><span className="dot dot-red" style={{ width: 6, height: 6 }}/> <span className="text-muted" style={{ fontSize: '0.8rem' }}>Error</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><span className="dot dot-amber" style={{ width: 6, height: 6 }}/> <span className="text-muted" style={{ fontSize: '0.8rem' }}>Warn</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><span className="dot dot-blue" style={{ width: 6, height: 6 }}/> <span className="text-muted" style={{ fontSize: '0.8rem' }}>Info</span></div>
             </div>
           </div>
           
@@ -127,34 +159,76 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="animate-in" style={{ animationDelay: '360ms' }}>
-        <LiveFeed />
+      <section className="animate-in" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem', animationDelay: '440ms' }}>
+        
+        {/* --- LINE CHART --- */}
+        {/* --- LINE CHART (System Throughput) --- */}
+        <div className="void-card" style={{ padding: '1.5rem' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h2 className="text-mono" style={{ fontSize: '1.1rem', color: 'var(--white)' }}>System Throughput</h2>
+            <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Volume of PRs processed per day.</p>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={trendData}>
+              <XAxis 
+                dataKey="date" 
+                stroke="rgba(255,255,255,0.1)" 
+                tick={{ fill: '#737373', fontSize: 11, fontFamily: 'var(--font-mono)' }} 
+                tickMargin={10} 
+              />
+              <YAxis 
+                stroke="rgba(255,255,255,0.1)" 
+                tick={{ fill: '#737373', fontSize: 11, fontFamily: 'var(--font-mono)' }} 
+                tickMargin={10}
+                allowDecimals={false} /* Ensures the axis only shows whole numbers */
+              />
+              <Tooltip 
+                contentStyle={{ background: 'rgba(10, 10, 10, 0.9)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', color: '#f0f0f0', fontFamily: 'var(--font-mono)' }} 
+                itemStyle={{ color: 'var(--accent-1)' }} 
+              />
+              <Line 
+                type="monotone" 
+                dataKey="count" /* Map to the new 'count' key */
+                name="Reviews" /* Makes the tooltip look professional */
+                stroke="var(--accent-1)" 
+                strokeWidth={3} 
+                dot={{ fill: '#000', stroke: '#a855f7', strokeWidth: 2, r: 4 }} 
+                activeDot={{ r: 6, fill: '#06b6d4' }} 
+              />           
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* --- BAR CHART --- */}
+        <div className="void-card" style={{ padding: '1.5rem' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h2 className="text-mono" style={{ fontSize: '1.1rem', color: 'var(--white)' }}>Top Categories</h2>
+            <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>Most frequent violations.</p>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart layout="vertical" data={topIssues} margin={{ left: 10, right: 10 }}>
+              <defs>
+                <linearGradient id="neonBar" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="var(--accent-1)" />
+                  <stop offset="50%" stopColor="var(--accent-2)" />
+                  <stop offset="100%" stopColor="var(--accent-3)" />
+                </linearGradient>
+              </defs>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="category" stroke="rgba(255,255,255,0.1)" tick={{ fill: '#a3a3a3', fontSize: 11, fontFamily: 'var(--font-mono)' }} width={70} axisLine={false} tickLine={false} />
+              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.02)' }} contentStyle={{ background: 'rgba(10, 10, 10, 0.9)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', color: '#f0f0f0', fontFamily: 'var(--font-mono)' }} />
+              <Bar dataKey="count" fill="url(#neonBar)" radius={[0, 4, 4, 0]} barSize={20} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
       </section>
 
-      <section>
-        <div className="animate-in" style={{ animationDelay: '400ms', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.5rem' }}>
-          <h2 className="text-large">Recent Reviews</h2>
-          <span className="text-muted">Showing last 4</span>
+      <section className="animate-in" style={{ animationDelay: '480ms' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 className="text-mono" style={{ fontSize: '1.1rem', color: 'var(--white)' }}>Live Processing Queue</h2>
         </div>
-
-        <div className="stagger">
-          {recentReviews.length > 0 ? (
-            recentReviews.map((review, i) => (
-              <div key={review.id} onClick={() => navigate(`/reviews/${review.id}`)} className="void-row animate-in" style={{ animationDelay: `${480 + (i * 80)}ms`, cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1 }}>
-                  <div className="dot dot-blue" />
-                  <span className="text-mono" style={{ color: 'var(--gray-400)' }}>{review.repo_full_name}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '3rem' }}>
-                  <span className="text-mono" style={{ color: 'var(--white)' }}>#{review.pr_number}</span>
-                  <span className="text-muted" style={{ width: '150px', textAlign: 'right' }}>{new Date(review.created_at).toLocaleString()}</span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="animate-in" style={{ padding: '4rem 0', textAlign: 'center', animationDelay: '480ms' }}><span className="text-muted">No reviews yet.</span></div>
-          )}
-        </div>
+        <LiveFeed />
       </section>
     </div>
   );

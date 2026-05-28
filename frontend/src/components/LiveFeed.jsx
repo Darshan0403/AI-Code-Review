@@ -9,7 +9,7 @@ export default function LiveFeed() {
     const ws = new WebSocket(`ws://localhost:8083/ws/live?token=${token}`);
 
     ws.onopen = () => {
-      console.log('🟢 Connected to Void Matrix (WebSocket)');
+      console.log(' Connected to Void Matrix (WebSocket)');
     };
 
     // 2. Listen for messages from Redis (via Go Hub)
@@ -26,7 +26,7 @@ export default function LiveFeed() {
     };
 
     ws.onclose = () => {
-      console.log('🔴 Disconnected from Matrix');
+      console.log(' Disconnected from Matrix');
     };
 
     // Cleanup when component unmounts

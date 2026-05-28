@@ -16,7 +16,7 @@ export default function Layout() {
       <main style={{
         flex: 1,
         marginLeft: '220px', // Exactly matches sidebar width
-        padding: '4rem', // Generous breathing room
+        padding: '1rem 4rem', // Generous breathing room
         position: 'relative',
         zIndex: 1, // Crucial: Puts content ABOVE the particle sphere
         maxWidth: '1200px' // Keeps typography highly readable on ultra-wides

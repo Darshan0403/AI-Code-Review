@@ -19,6 +19,14 @@ export default function LandingSphere() {
     const numParticles = 380; // Denser array matrix
     const baseSphereRadius = Math.min(window.innerWidth, window.innerHeight) * 0.32;
 
+    // The Neon Theme Colors (RGB format for easy opacity blending)
+    // accent-1 (#6366f1), accent-2 (#8b5cf6), accent-3 (#06b6d4)
+    const themeColors = [
+      '99, 102, 241',  
+      '139, 92, 246',  
+      '6, 182, 212'    
+    ];
+
     for (let i = 0; i < numParticles; i++) {
       const phi = Math.acos(1 - 2 * (i + 0.5) / numParticles);
       const theta = Math.PI * (1 + Math.sqrt(5)) * i;
@@ -28,7 +36,7 @@ export default function LandingSphere() {
         y: Math.sin(theta) * Math.sin(phi),
         z: Math.cos(phi),
         baseRadius: Math.random() * 1.8 + 0.6,
-        hueShift: Math.random() * 360
+        colorRGB: themeColors[Math.floor(Math.random() * themeColors.length)]
       });
     }
 
@@ -43,8 +51,8 @@ export default function LandingSphere() {
       angleY += 0.0025;
       time += 0.012;
 
-      // Mathematical respiration calculation loop
-      const breatheScale = 1.0 + 0.12 * Math.sin(time * 0.6); 
+      // Mathematical respiration calculation loop (Sped up from 0.6 to 1.5)
+      const breatheScale = 1.0 + 0.12 * Math.sin(time * 1.5); 
       const currentRadius = baseSphereRadius * breatheScale;
 
       const cosX = Math.cos(angleX);
@@ -67,15 +75,14 @@ export default function LandingSphere() {
         const py = centerY + y1 * currentRadius * perspective;
         
         const depth = (z2 + 1) / 2; 
-        const opacity = Math.max(0.08, depth) * 0.55;
+        const opacity = Math.max(0.08, depth) * 0.75; // Bumped max opacity slightly for neon punch
         const size = p.baseRadius * perspective;
-
-        // Synchronous global interpolation cycle across HSL color boundaries
-        const currentHue = (p.hueShift + time * 25) % 360; 
 
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${currentHue}, 75%, 65%, ${opacity})`;
+        
+        // Apply the specific theme color with the calculated depth opacity
+        ctx.fillStyle = `rgba(${p.colorRGB}, ${opacity})`;
         ctx.fill();
       });
 

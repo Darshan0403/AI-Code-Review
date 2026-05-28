@@ -16,7 +16,7 @@ export function useWebSocket(url) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('🟢 Connected to Void Matrix (WebSocket)');
+      console.log(' Connected to Void Matrix (WebSocket)');
       setIsConnected(true);
       reconnectAttempts.current = 0; // Reset attempts on success
     };
@@ -31,7 +31,7 @@ export function useWebSocket(url) {
     };
 
     ws.onclose = () => {
-      console.log('🔴 Disconnected from Matrix');
+      console.log(' Disconnected from Matrix');
       setIsConnected(false);
       wsRef.current = null;
 

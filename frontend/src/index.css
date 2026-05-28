@@ -213,3 +213,236 @@ body {
 .void-collapse-inner {
   overflow: hidden;
 }
+
+/* --- Assistant UI --- */
+.assistant-input {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-invisible);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  width: 100%;
+  transition: border-color 0.3s;
+}
+.assistant-input:focus {
+  outline: none;
+  border-color: var(--accent-1);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.08);
+}
+
+.assistant-response {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-invisible);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  line-height: 1.7;
+  color: var(--gray-100);
+  white-space: pre-wrap; /* Preserves LLM newlines */
+}
+.assistant-response code {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-1);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.breathing-skeleton {
+  animation: pulse 1.5s infinite;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+@keyframes pulse {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* --- Reusable Neon Breathing Effect --- */
+@keyframes neonBreathe {
+  0% {
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.05);
+  }
+  50% {
+    border-color: rgba(99, 102, 241, 0.8);
+    box-shadow: 0 0 25px rgba(99, 102, 241, 0.2);
+  }
+  100% {
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.05);
+  }
+}
+
+.neon-pulse {
+  animation: neonBreathe 3s infinite ease-in-out;
+  border: 1px solid transparent; /* Required for the animation to grab onto */
+}
+
+.gradient-border-card {
+  position: relative;
+  background: var(--black); /* Keep the card dark inside */
+  border: none !important; /* Strip the standard solid border */
+  border-radius: 12px;
+}
+
+.gradient-border-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px; /* Expands exactly 1px outside the card */
+  border-radius: inherit; /* Perfectly matches the parent card */
+  padding: 1px; /* Thickness of the border */
+  background: linear-gradient(
+    90deg,
+    var(--accent-1),
+    var(--accent-2),
+    var(--accent-3),
+    var(--accent-1)
+  );
+  background-size: 300% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  
+  /* Set to 1 so it is constantly breathing without needing a hover! */
+  opacity: 1; 
+  pointer-events: none; 
+  animation: smoothGradient 4s linear infinite;
+}
+
+@keyframes smoothGradient {
+  0% { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+
+/* ========================================== */
+/* EXPLORER CUSTOM DROPDOWN                   */
+/* ========================================== */
+.custom-select-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 260px;
+  transition: border-color 0.2s, background 0.2s;
+  user-select: none;
+}
+
+.custom-select-trigger:hover {
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.06);
+}
+
+.custom-select-trigger.open {
+  border-color: rgba(99,102,241,0.6);
+  background: rgba(99,102,241,0.06);
+}
+
+.custom-select-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(99,102,241,0.6);
+}
+
+.custom-select-label {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.custom-select-chevron {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.custom-select-chevron.open {
+  transform: rotate(180deg);
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #0e0e10;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  z-index: 100;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.custom-select-dropdown.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  /* Add a subtle shadow so it pops over the AST tree */
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5); 
+}
+
+.custom-select-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.custom-select-option:last-child {
+  border-bottom: none;
+}
+
+.custom-select-option:hover {
+  background: rgba(255,255,255,0.04);
+  color: var(--white);
+}
+
+.custom-select-option.selected {
+  color: var(--white);
+  background: rgba(99,102,241,0.08);
+}
+
+.custom-select-option-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.custom-select-option.selected .custom-select-option-dot {
+  opacity: 1;
+}
