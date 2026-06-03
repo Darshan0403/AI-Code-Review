@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
+import API from '../config/api';
 
 export default function Explorer() {
   const [repos, setRepos] = useState([]);
@@ -47,7 +48,7 @@ export default function Explorer() {
   };
 
   useEffect(() => {
-    fetch('http://localhost:8083/api/v1/repos', {
+    fetch(`${API.BASE}/api/v1/repos`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())
@@ -63,7 +64,7 @@ export default function Explorer() {
   useEffect(() => {
     if (!selectedRepo) return;
 
-    fetch(`http://localhost:8083/api/v1/repos/${selectedRepo}/indexed-files`, {
+    fetch(`${API.BASE}/api/v1/repos/${selectedRepo}/indexed-files`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => {
@@ -89,7 +90,7 @@ export default function Explorer() {
     setIsSearching(true);
     setExpandedMatches({}); 
 
-    fetch('http://localhost:8083/api/v1/search-similar', {
+    fetch(`${API.BASE}/api/v1/search-similar`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo_id: selectedRepo, query: func.name })

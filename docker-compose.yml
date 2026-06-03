@@ -1,9 +1,8 @@
-version: '3.8'
-
 services:
   # --- DATABASES & INFRASTRUCTURE ---
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecretpassword}
@@ -21,6 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -31,6 +31,7 @@ services:
 
   chromadb:
     image: chromadb/chroma:latest
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -39,6 +40,7 @@ services:
   # --- BACKEND SERVICES ---
   code-intelligence:
     build: ./services/code-intelligence
+    restart: unless-stopped
     ports:
       - "8082:8082"
     env_file:
@@ -51,6 +53,7 @@ services:
 
   api-server:
     build: ./services/api-server
+    restart: unless-stopped
     ports:
       - "8083:8083"
     env_file:
@@ -63,6 +66,7 @@ services:
 
   webhook-handler:
     build: ./services/webhook-handler
+    restart: unless-stopped
     ports:
       - "8080:8080"
     env_file:
@@ -75,6 +79,7 @@ services:
 
   review-worker:
     build: ./services/review-worker
+    restart: unless-stopped
     env_file:
       - .env
     depends_on:
@@ -88,6 +93,7 @@ services:
   # --- FRONTEND ---
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useTransition, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API from '../config/api';
 
 // 1. PERFORMANCE FIX: Extract CSS outside the component lifecycle to prevent CSSOM thrashing
 const reviewStyles = `
@@ -102,7 +103,7 @@ export default function Reviews() {
   useEffect(() => {
     const token = localStorage.getItem('void_token');
     
-    fetch('http://localhost:8083/api/v1/reviews', {
+    fetch(`${API.BASE}/api/v1/reviews`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
     })
       .then((res) => res.json())

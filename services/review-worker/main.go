@@ -39,7 +39,8 @@ func main() {
 		redisAddr = "localhost:6379"
 	}
 	rdb := redis.NewClient(&redis.Options{
-		Addr: redisAddr,
+		Addr:     redisAddr,
+		Password: os.Getenv("REDIS_PASSWORD"),
 	})
 	defer rdb.Close()
 

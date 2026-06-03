@@ -98,7 +98,10 @@ func main() {
 	if redisAddr == "" {
 		redisAddr = "localhost:6379"
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     redisAddr,
+		Password: os.Getenv("REDIS_PASSWORD"),
+	})
 	defer rdb.Close()
 
 	wsHub := ws.NewHub()
@@ -110,7 +113,11 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"http://localhost:3000"},
+		AllowedOrigins: []string{
+			"http://localhost:3000",
+			"https://*.vercel.app",
+			"https://*.onrender.com",
+		},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type"},
 	}))

@@ -1,10 +1,11 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
+import API from '../config/api';
 
 export default function Sidebar() {
   const navigate = useNavigate();
-  const { isConnected } = useWebSocket('ws://localhost:8083/ws/live');
+  const { isConnected } = useWebSocket(API.WS);
   const isAdmin = !!localStorage.getItem('void_token');
 
   const navItems = [

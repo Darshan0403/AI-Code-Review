@@ -11,7 +11,12 @@ app = FastAPI(title="Code Intelligence Service")
 # --- NEW: Allow React to ping the AI Engine directly for Reindexing ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://*.vercel.app",
+        "https://*.onrender.com",
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +39,9 @@ class SearchRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     print("Code Intelligence Service Booting Up...")
+    if vector_db.collection is None:
+        print("⚠️  ChromaDB not connected — skipping startup test. RAG features disabled.")
+        return
     try:
         vector_db.add_functions(
             ids=["test_1"],

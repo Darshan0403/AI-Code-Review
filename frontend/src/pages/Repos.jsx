@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API from '../config/api';
 
 export default function Repos() {
   const navigate = useNavigate();
@@ -37,7 +38,7 @@ export default function Repos() {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       
-      const res = await fetch('http://localhost:8083/api/v1/repos', { headers });
+      const res = await fetch(`${API.BASE}/api/v1/repos`, { headers });
       if (res.status === 401) return forceLogout();
       if (!res.ok) throw new Error('Failed to fetch repos');
       
@@ -57,7 +58,7 @@ export default function Repos() {
     if (!token) return forceLogout();
     
     try {
-      const res = await fetch('http://localhost:8083/api/v1/repos', {
+      const res = await fetch(`${API.BASE}/api/v1/repos`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ github_full_name: newRepo, webhook_secret: newSecret, custom_instructions: newInstructions })
@@ -80,7 +81,7 @@ export default function Repos() {
   const handleTogglePause = async (id) => {
     if (!isAdmin) return;
     try {
-      const res = await fetch(`http://localhost:8083/api/v1/repos/${id}/toggle-pause`, {
+      const res = await fetch(`${API.BASE}/api/v1/repos/${id}/toggle-pause`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
@@ -99,7 +100,7 @@ export default function Repos() {
     if (!isAdmin) return;
     setIndexingRepos(prev => ({ ...prev, [repoName]: true }));
     try {
-      const res = await fetch('http://localhost:8082/api/index', {
+      const res = await fetch(`${API.CODE_INTEL}/api/index`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo_name: repoName })
@@ -126,7 +127,7 @@ export default function Repos() {
     setIsDeleting(true);
 
     try {
-      const res = await fetch(`http://localhost:8083/api/v1/repos/${repoToDelete.id}`, {
+      const res = await fetch(`${API.BASE}/api/v1/repos/${repoToDelete.id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ passphrase: deletePassphrase }) 

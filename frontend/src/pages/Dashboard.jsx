@@ -3,6 +3,7 @@ import { useCountUp } from '../hooks/useCountUp';
 import LiveFeed from '../components/LiveFeed';
 import { useWebSocket } from '../hooks/useWebSocket'; 
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import API from '../config/api';
 
 const StatCard = ({ title, value, delay, isAlert, suffix = "" }) => {
   const displayValue = useCountUp(value || 0);
@@ -27,7 +28,7 @@ export default function Dashboard() {
   const [trendData, setTrendData] = useState([]);
   const [topIssues, setTopIssues] = useState([]);
 
-  const { messages } = useWebSocket('ws://localhost:8083/ws/live');
+  const { messages } = useWebSocket(API.WS);
   const token = localStorage.getItem('void_token');
 
   const fetchDashboardData = useCallback(async () => {
@@ -37,9 +38,9 @@ export default function Dashboard() {
 
     try {
       const [dashRes, trendsRes, issuesRes] = await Promise.all([
-        fetch('http://localhost:8083/api/v1/analytics/dashboard', { headers }),
-        fetch('http://localhost:8083/api/v1/analytics/trends', { headers }),
-        fetch('http://localhost:8083/api/v1/analytics/top-issues', { headers })
+        fetch(`${API.BASE}/api/v1/analytics/dashboard`, { headers }),
+        fetch(`${API.BASE}/api/v1/analytics/trends`, { headers }),
+        fetch(`${API.BASE}/api/v1/analytics/top-issues`, { headers })
       ]);
 
       if (dashRes.ok) {

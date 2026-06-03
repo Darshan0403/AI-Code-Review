@@ -1,5 +1,3 @@
-import chromadb
-from chromadb.config import Settings
 import os
 
 class VectorStore:
@@ -8,24 +6,37 @@ class VectorStore:
         chroma_host = os.getenv("CHROMA_HOST", "chromadb")
         chroma_port = os.getenv("CHROMA_PORT", "8000")
         
-        print(f"Connecting to ChromaDB at {chroma_host}:{chroma_port}...")
+        self.client = None
+        self.collection = None
         
-        self.client = chromadb.HttpClient(
-            host=chroma_host,
-            port=chroma_port,
-            settings=Settings(anonymized_telemetry=False)
-        )
-        
-        # Get or create the collection for our code snippets
-        # We use cosine similarity which is standard for text embeddings
-        self.collection = self.client.get_or_create_collection(
-            name="codebase_functions",
-            metadata={"hnsw:space": "cosine"}
-        )
-        print("ChromaDB connection established and collection ready.")
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            
+            print(f"Connecting to ChromaDB at {chroma_host}:{chroma_port}...")
+            
+            self.client = chromadb.HttpClient(
+                host=chroma_host,
+                port=chroma_port,
+                settings=Settings(anonymized_telemetry=False)
+            )
+            
+            # Get or create the collection for our code snippets
+            # We use cosine similarity which is standard for text embeddings
+            self.collection = self.client.get_or_create_collection(
+                name="codebase_functions",
+                metadata={"hnsw:space": "cosine"}
+            )
+            print("ChromaDB connection established and collection ready.")
+        except Exception as e:
+            print(f"⚠️  ChromaDB not available — RAG features disabled. Error: {e}")
+            print("   Core review pipeline (/api/review) will still work via Groq API.")
 
     def add_functions(self, ids: list[str], embeddings: list[list[float]], metadatas: list[dict], documents: list[str]):
         """Inserts embedded code snippets into the database."""
+        if self.collection is None:
+            print("⚠️  ChromaDB not available — skipping add_functions")
+            return
         self.collection.upsert(
             ids=ids,
             embeddings=embeddings,

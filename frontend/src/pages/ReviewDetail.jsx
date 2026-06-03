@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
+import API from '../config/api';
 
 const CommentCard = ({ comment, delay, onFeedbackSubmit }) => {
   const [feedback, setFeedback] = useState(comment.feedback_type || null);
@@ -12,7 +13,7 @@ const CommentCard = ({ comment, delay, onFeedbackSubmit }) => {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('http://localhost:8083/api/v1/feedback', {
+      const res = await fetch(`${API.BASE}/api/v1/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comment_id: comment.id, feedback_type: type }) 
@@ -102,7 +103,7 @@ export default function ReviewDetail() {
 
   const fetchReviewData = () => {
     const token = localStorage.getItem('void_token');
-    fetch(`http://localhost:8083/api/v1/reviews/${id}`, {
+    fetch(`${API.BASE}/api/v1/reviews/${id}`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
     })
       .then(res => res.json())

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API from '../config/api';
 
 export default function LiveFeed() {
   const [events, setEvents] = useState([]);
@@ -6,7 +7,7 @@ export default function LiveFeed() {
   useEffect(() => {
     // 1. Open the WebSocket connection to your Go API
     const token = localStorage.getItem('void_token');
-    const ws = new WebSocket(`ws://localhost:8083/ws/live?token=${token}`);
+    const ws = new WebSocket(`${API.WS}?token=${token}`);
 
     ws.onopen = () => {
       console.log(' Connected to Void Matrix (WebSocket)');

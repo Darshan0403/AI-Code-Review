@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
+import API from '../config/api';
 
 export default function Assistant() {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ export default function Assistant() {
 
   const fetchRepos = async () => {
     try {
-      const res = await fetch('http://localhost:8083/api/v1/repos', {
+      const res = await fetch(`${API.BASE}/api/v1/repos`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401) return forceLogout();
@@ -60,7 +61,7 @@ export default function Assistant() {
 
     try {
       const repoObj = repos.find(r => r.github_full_name === selectedRepo);
-      const res = await fetch(`http://localhost:8083/api/v1/repos/${repoObj.id}/summary`, {
+      const res = await fetch(`${API.BASE}/api/v1/repos/${repoObj.id}/summary`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401) return forceLogout();
@@ -82,7 +83,7 @@ export default function Assistant() {
     setResponse(null);
 
     try {
-      const res = await fetch('http://localhost:8083/api/v1/repos/explain', {
+      const res = await fetch(`${API.BASE}/api/v1/repos/explain`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

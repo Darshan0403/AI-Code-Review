@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ParticleSphere from '../components/ParticleSphere'; 
+import API from '../config/api';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export default function Login() {
     console.log("1. Vault Door: Initiating secure handshake...");
 
     try {
-      const res = await fetch('http://localhost:8083/api/v1/auth/login', {
+      const res = await fetch(`${API.BASE}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password })
