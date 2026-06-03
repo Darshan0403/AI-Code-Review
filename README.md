@@ -1,6 +1,6 @@
-# VOID — AI-Powered Code Review & Codebase Intelligence Platform
+# CodeSense — AI-Powered Code Review & Codebase Intelligence Platform
 
-VOID is an enterprise-grade, event-driven platform that intercepts GitHub Pull Requests, generates context-aware AI reviews using Retrieval-Augmented Generation (RAG) over your codebase's vector embeddings, and learns from developer feedback over time.
+CodeSense is an enterprise-grade, event-driven platform that intercepts GitHub Pull Requests, generates context-aware AI reviews using Retrieval-Augmented Generation (RAG) over your codebase's vector embeddings, and learns from developer feedback over time.
 
 ---
 
@@ -27,7 +27,7 @@ Code reviews are slow. Developers wait hours — sometimes days — for feedback
 
 **The Solution**
 
-VOID intercepts every pull request the moment it is created, analyzes it against your codebase's indexed AST and vector embeddings, and posts context-aware review comments to GitHub within 60 seconds. It retrieves similar functions from your repository, compares patterns, and improves over time through developer feedback.
+CodeSense intercepts every pull request the moment it is created, analyzes it against your codebase's indexed AST and vector embeddings, and posts context-aware review comments to GitHub within 60 seconds. It retrieves similar functions from your repository, compares patterns, and improves over time through developer feedback.
 
 ---
 
@@ -171,7 +171,7 @@ ngrok http 8080
 2. Register a repository through the dashboard. Use the ngrok URL as the webhook endpoint.
 3. Create a Pull Request on the registered repository.
 4. The dashboard will display real-time progress via WebSocket as the review runs.
-5. View the AI's comments on both the GitHub PR and the VOID dashboard.
+5. View the AI's comments on both the GitHub PR and the CodeSense dashboard.
 
 ### Rebuilding Without Losing Data
 
