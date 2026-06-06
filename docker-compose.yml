@@ -32,10 +32,12 @@ services:
   chromadb:
     image: chromadb/chroma:latest
     restart: unless-stopped
+    environment:
+      - IS_PERSISTENT=TRUE
     ports:
       - "8000:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      - chroma_data:/data
 
   # --- BACKEND SERVICES ---
   code-intelligence:

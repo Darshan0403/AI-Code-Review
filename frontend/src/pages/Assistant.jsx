@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import API from '../config/api';
 
 export default function Assistant() {
@@ -11,7 +13,7 @@ export default function Assistant() {
   const [question, setQuestion] = useState('');
   const [response, setResponse] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingType, setLoadingType] = useState(''); 
+  const [loadingType, setLoadingType] = useState('');
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const selectWrapperRef = useRef(null);
@@ -65,7 +67,7 @@ export default function Assistant() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401) return forceLogout();
-      
+
       const data = await res.json();
       setResponse({ answer: data.summary, type: 'summary' });
     } catch (err) {
@@ -77,7 +79,7 @@ export default function Assistant() {
   const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!question.trim() || !selectedRepo) return;
-    
+
     setIsLoading(true);
     setLoadingType('question');
     setResponse(null);
@@ -101,116 +103,323 @@ export default function Assistant() {
     } catch (err) {
       setResponse({ answer: "Failed to query the codebase.", type: 'error' });
     }
-    
+
     setIsLoading(false);
     // FIX: Removed setQuestion('') so the user's prompt remains in the search bar!
   };
 
-  // --- LIGHTWEIGHT MARKDOWN PARSER ---
-  const formatInlineCode = (str) => {
-    const parts = str.split(/(`[^`]+`)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('`') && part.endsWith('`')) {
-        return <code key={i} style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-3)', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.85em' }}>{part.slice(1, -1)}</code>;
-      }
-      return <span key={i}>{part}</span>;
-    });
-  };
-
-  const formatInlineBold = (str) => {
-    const parts = str.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} style={{ color: 'var(--white)', fontWeight: 700 }}>{formatInlineCode(part.slice(2, -2))}</strong>;
-      }
-      return formatInlineCode(part);
-    });
-  };
-
-  const formatText = (text) => {
-    if (!text) return null;
-    
-    const lines = text.replace(/\\n/g, '\n').split('\n');
-    
-    return lines.map((line, idx) => {
-      let trimmed = line.trim();
-      
-      // Empty Lines
-      if (!trimmed) return <div key={idx} style={{ height: '0.75rem' }} />;
-      
-      // Match Headers (1 to 6 hashes)
-      const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-      
-      if (headerMatch) {
-        const level = headerMatch[1].length; // Counts how many hashes
-        // Brutally strip any weird/unclosed asterisks the LLM tries to put in headers
-        const cleanText = headerMatch[2].replace(/\*\*/g, ''); 
-        
-        // Treat anything H3 or smaller (4, 5, 6) as our custom H3 style
-        if (level >= 3) return <h3 key={idx} className="text-mono" style={{ color: 'var(--accent-1)', fontSize: '1.1rem', marginTop: '1.5rem', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cleanText}</h3>;
-        if (level === 2) return <h2 key={idx} className="text-mono" style={{ color: 'var(--accent-2)', fontSize: '1.3rem', marginTop: '1.75rem', marginBottom: '0.75rem' }}>{cleanText}</h2>;
-        if (level === 1) return <h1 key={idx} className="text-mono" style={{ color: 'var(--white)', fontSize: '1.6rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginTop: '2rem', marginBottom: '1rem' }}>{cleanText}</h1>;
-      }
-      
-      // Handle Lists
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        // Strip the starting bullet and any leading asterisks if the LLM hallucinated
-        let content = trimmed.slice(2).replace(/^\*\*/, '');
-        return (
-          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem', paddingLeft: '1rem' }}>
-            <span style={{ color: 'var(--accent-3)', marginTop: '0.1rem' }}>▹</span>
-            <div style={{ flex: 1, lineHeight: 1.6 }}>{formatInlineBold(content)}</div>
-          </div>
-        );
-      }
-      
-      // Standard Paragraph
-      return <p key={idx} style={{ marginBottom: '0.75rem', lineHeight: 1.7, color: 'var(--gray-300)' }}>{formatInlineBold(trimmed)}</p>;
-    });
-  };
-
-  // FIX: Multi-Line Code Block Extractor
+  // ─── MARKDOWN RENDERER ───────────────────────────────────────────────────────
   const renderMarkdown = (text) => {
     if (!text) return null;
-    
-    // Split the text by multi-line code blocks (```...```)
-    const blocks = text.split(/(```[\s\S]*?```)/g);
 
-    return blocks.map((block, index) => {
-      // If it's a code block, render it with SyntaxHighlighter
-      if (block.startsWith('```') && block.endsWith('```')) {
-        const content = block.slice(3, -3).trim();
-        const lines = content.split('\n');
-        const firstLine = lines[0].trim();
-        
-        // Detect language (e.g., 'python', 'go', 'javascript')
-        const isLang = /^[a-zA-Z0-9_+-]+$/.test(firstLine) && firstLine.length < 15;
-        const lang = isLang ? firstLine : 'javascript';
-        const code = isLang ? lines.slice(1).join('\n') : content;
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
 
-        return (
-          <div key={index} style={{ margin: '1.5rem 0', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', background: '#0a0a0a' }}>
-            <SyntaxHighlighter 
-              language={lang} 
-              style={atomDark} 
-              customStyle={{ margin: 0, padding: '1.25rem', fontSize: '0.85rem', background: 'transparent' }}
-            >
-              {code}
-            </SyntaxHighlighter>
-          </div>
-        );
-      }
-      
-      // If it's standard text, pass it to our inline formatter
-      return <div key={index}>{formatText(block)}</div>;
-    });
+          // ── Code blocks & inline code ──────────────────────────────────────
+          code({ node, inline, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const lang = match ? match[1] : 'javascript';
+
+            return !inline ? (
+              <div style={{
+                margin: '1.5rem 0',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: '#0a0a0a'
+              }}>
+                <SyntaxHighlighter
+                  language={lang}
+                  style={atomDark}
+                  customStyle={{ margin: 0, padding: '1.25rem', fontSize: '0.85rem', background: 'transparent' }}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              </div>
+            ) : (
+              <code
+                style={{
+                  background: 'rgba(6, 182, 212, 0.15)',
+                  color: 'var(--accent-3)',
+                  padding: '0.15rem 0.35rem',
+                  borderRadius: '4px',
+                  fontSize: '0.85em',
+                  fontFamily: 'var(--font-mono)'
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          },
+
+          // ── Tables ─────────────────────────────────────────────────────────
+          table({ children }) {
+            return (
+              <div style={{ overflowX: 'auto', margin: '1.5rem 0' }}>
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '0.9rem',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '6px',
+                  overflow: 'hidden'
+                }}>
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          thead({ children }) {
+            return (
+              <thead style={{ background: 'rgba(6, 182, 212, 0.06)', borderBottom: '1px solid rgba(6, 182, 212, 0.25)' }}>
+                {children}
+              </thead>
+            );
+          },
+          tbody({ children }) {
+            return <tbody>{children}</tbody>;
+          },
+          th({ children }) {
+            return (
+              <th style={{
+                padding: '0.65rem 1rem',
+                textAlign: 'left',
+                color: 'var(--accent-3)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.07em',
+                whiteSpace: 'nowrap',
+                fontWeight: 600,
+                borderRight: '1px solid rgba(255,255,255,0.04)'
+              }}>
+                {children}
+              </th>
+            );
+          },
+          td({ children }) {
+            return (
+              <td style={{
+                padding: '0.6rem 1rem',
+                color: 'var(--gray-300)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                borderRight: '1px solid rgba(255,255,255,0.04)',
+                verticalAlign: 'top'
+              }}>
+                {children}
+              </td>
+            );
+          },
+          tr({ children }) {
+            return (
+              <tr
+                style={{ transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {children}
+              </tr>
+            );
+          },
+
+          // ── Headings ───────────────────────────────────────────────────────
+          h1({ children }) {
+            return (
+              <h1 className="text-mono" style={{
+                color: 'var(--white)',
+                fontSize: '1.6rem',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                paddingBottom: '0.5rem',
+                marginTop: '2rem',
+                marginBottom: '1rem'
+              }}>
+                {children}
+              </h1>
+            );
+          },
+          h2({ children }) {
+            return (
+              <h2 className="text-mono" style={{
+                color: 'var(--accent-2)',
+                fontSize: '1.3rem',
+                marginTop: '1.75rem',
+                marginBottom: '0.75rem'
+              }}>
+                {children}
+              </h2>
+            );
+          },
+          h3({ children }) {
+            return (
+              <h3 className="text-mono" style={{
+                color: 'var(--accent-1)',
+                fontSize: '1.1rem',
+                marginTop: '1.5rem',
+                marginBottom: '0.5rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}>
+                {children}
+              </h3>
+            );
+          },
+          h4({ children }) {
+            return (
+              <h4 className="text-mono" style={{
+                color: 'var(--accent-1)',
+                fontSize: '1rem',
+                marginTop: '1.25rem',
+                marginBottom: '0.4rem',
+                opacity: 0.85
+              }}>
+                {children}
+              </h4>
+            );
+          },
+
+          // ── Paragraph ──────────────────────────────────────────────────────
+          p({ children }) {
+            return (
+              <p style={{ marginBottom: '0.75rem', lineHeight: 1.7, color: 'var(--gray-300)' }}>
+                {children}
+              </p>
+            );
+          },
+
+          // ── Inline formatting ──────────────────────────────────────────────
+          strong({ children }) {
+            return (
+              <strong style={{ color: 'var(--white)', fontWeight: 700 }}>
+                {children}
+              </strong>
+            );
+          },
+          em({ children }) {
+            return (
+              <em style={{ color: 'var(--gray-300)', fontStyle: 'italic' }}>
+                {children}
+              </em>
+            );
+          },
+          del({ children }) {
+            return (
+              <del style={{ color: 'var(--gray-500)', textDecoration: 'line-through' }}>
+                {children}
+              </del>
+            );
+          },
+
+          // ── Lists ──────────────────────────────────────────────────────────
+          ul({ children }) {
+            return (
+              <ul style={{ listStyle: 'none', padding: '0 0 0 0.5rem', margin: '0 0 0.75rem' }}>
+                {children}
+              </ul>
+            );
+          },
+          ol({ children }) {
+            return (
+              <ol style={{
+                paddingLeft: '1.5rem',
+                color: 'var(--gray-300)',
+                marginBottom: '0.75rem',
+                lineHeight: 1.7
+              }}>
+                {children}
+              </ol>
+            );
+          },
+          li({ children, ordered }) {
+            // Ordered list items use the browser default number; unordered get the ▹ marker
+            if (ordered) {
+              return (
+                <li style={{ marginBottom: '0.45rem', color: 'var(--gray-300)', lineHeight: 1.6 }}>
+                  {children}
+                </li>
+              );
+            }
+            return (
+              <li style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                marginBottom: '0.5rem',
+                lineHeight: 1.6,
+                color: 'var(--gray-300)',
+                listStyle: 'none'
+              }}>
+                <span style={{ color: 'var(--accent-3)', marginTop: '0.25rem', flexShrink: 0 }}>▹</span>
+                <span style={{ flex: 1 }}>{children}</span>
+              </li>
+            );
+          },
+
+          // ── Blockquote ─────────────────────────────────────────────────────
+          blockquote({ children }) {
+            return (
+              <blockquote style={{
+                borderLeft: '3px solid var(--accent-2)',
+                paddingLeft: '1rem',
+                margin: '1rem 0',
+                color: 'var(--gray-400)',
+                fontStyle: 'italic',
+                background: 'rgba(255,255,255,0.02)',
+                borderRadius: '0 4px 4px 0',
+                padding: '0.75rem 1rem'
+              }}>
+                {children}
+              </blockquote>
+            );
+          },
+
+          // ── Horizontal rule ────────────────────────────────────────────────
+          hr() {
+            return (
+              <hr style={{
+                border: 'none',
+                borderTop: '1px solid rgba(255,255,255,0.08)',
+                margin: '2rem 0'
+              }} />
+            );
+          },
+
+          // ── Links ──────────────────────────────────────────────────────────
+          a({ href, children }) {
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--accent-3)',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: '3px',
+                  textDecorationColor: 'rgba(6, 182, 212, 0.4)',
+                  transition: 'text-decoration-color 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.textDecorationColor = 'var(--accent-3)'}
+                onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(6, 182, 212, 0.4)'}
+              >
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    );
   };
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const selectedLabel = repos.find(r => r.github_full_name === selectedRepo)?.github_full_name ?? 'No repositories found';
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '4rem' }}>
-      
+
       <style>{`
         .neon-select-trigger {
           display: flex;
@@ -259,14 +468,20 @@ export default function Assistant() {
           color: var(--gray-500);
           box-shadow: none;
         }
+
+        /* Scoped table styles to avoid bleed */
+        .md-body table {
+          width: 100%;
+          border-collapse: collapse;
+        }
       `}</style>
 
       <header className="animate-in" style={{ marginBottom: '3rem' }}>
-        <h1 className="text-huge" style={{ fontFamily:'var(--mono)' }}>Assistant</h1>
+        <h1 className="text-huge" style={{ fontFamily: 'var(--mono)' }}>Assistant</h1>
         <p className="text-muted" style={{ marginTop: '0.5rem' }}>Query your indexed codebase.</p>
       </header>
 
-      <div className="animate-in" style={{ position: 'relative', zIndex: 50, animationDelay: '100ms', display: 'flex', gap: '1rem', marginBottom: '2.5rem' }}>        
+      <div className="animate-in" style={{ position: 'relative', zIndex: 50, animationDelay: '100ms', display: 'flex', gap: '1rem', marginBottom: '2.5rem' }}>
         <div className="custom-select-wrapper" ref={selectWrapperRef} style={{ flex: 1, zIndex: 50 }}>
           <div className="neon-select-trigger" onClick={() => setDropdownOpen(prev => !prev)}>
             <span className="dot" style={{ background: 'var(--accent-2)', boxShadow: '0 0 8px var(--accent-2)' }} />
@@ -278,7 +493,9 @@ export default function Assistant() {
             {repos.length === 0 ? (
               <div className="custom-select-option">No repositories found</div>
             ) : repos.map(r => (
-              <div key={r.id} className={`custom-select-option ${r.github_full_name === selectedRepo ? 'selected' : ''}`}
+              <div
+                key={r.id}
+                className={`custom-select-option ${r.github_full_name === selectedRepo ? 'selected' : ''}`}
                 onClick={() => { setSelectedRepo(r.github_full_name); setDropdownOpen(false); }}
               >
                 <span className="custom-select-option-dot" style={{ background: 'var(--accent-2)' }} />
@@ -288,21 +505,26 @@ export default function Assistant() {
           </div>
         </div>
 
-        <button onClick={handleUnderstandRepo} disabled={isLoading} className="text-mono" style={{ 
-            background: 'var(--white)', color: 'var(--black)', border: 'none', 
+        <button
+          onClick={handleUnderstandRepo}
+          disabled={isLoading}
+          className="text-mono"
+          style={{
+            background: 'var(--white)', color: 'var(--black)', border: 'none',
             padding: '0 1.5rem', borderRadius: '8px', cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: 600,
             opacity: isLoading ? 0.5 : 1
-          }}>
+          }}
+        >
           {isLoading && loadingType === 'summary' ? 'ANALYZING...' : 'SUMMARIZE ARCHITECTURE'}
         </button>
       </div>
 
       <form onSubmit={handleAskQuestion} className="animate-in" style={{ animationDelay: '150ms', marginBottom: '3rem', display: 'flex', gap: '1rem' }}>
-        <input 
-          type="text" 
-          value={question} 
+        <input
+          type="text"
+          value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask a question... (e.g. 'How are user tokens verified?')" 
+          placeholder="Ask a question... (e.g. 'How are user tokens verified?')"
           className="assistant-input"
           disabled={isLoading}
           style={{ flex: 1 }}
@@ -326,18 +548,27 @@ export default function Assistant() {
       )}
 
       {response && !isLoading && (
-        <div className="assistant-response animate-in" style={{ border: response.type === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(255,255,255,0.1)' }}>
-          
+        <div
+          className="assistant-response animate-in"
+          style={{ border: response.type === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(255,255,255,0.1)' }}
+        >
           {response.type === 'qa' && response.confidence > 0 && (
-             <div className="text-mono" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-               <span style={{ color: 'var(--gray-400)', fontSize: '0.8rem' }}>AI ANALYSIS COMPLETED</span>
-               <span style={{ color: 'var(--accent-3)', fontSize: '0.85rem', background: 'rgba(6, 182, 212, 0.1)', padding: '0.3rem 0.8rem', borderRadius: '4px' }}>
-                 Confidence: {response.confidence}%
-               </span>
-             </div>
+            <div className="text-mono" style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <span style={{ color: 'var(--gray-400)', fontSize: '0.8rem' }}>AI ANALYSIS COMPLETED</span>
+              <span style={{
+                color: 'var(--accent-3)', fontSize: '0.85rem',
+                background: 'rgba(6, 182, 212, 0.1)', padding: '0.3rem 0.8rem', borderRadius: '4px'
+              }}>
+                Confidence: {response.confidence}%
+              </span>
+            </div>
           )}
-          
-          <div style={{ fontSize: '0.95rem' }}>
+
+          {/* md-body scopes markdown styles cleanly */}
+          <div className="md-body" style={{ fontSize: '0.95rem' }}>
             {renderMarkdown(response.answer)}
           </div>
 
@@ -346,7 +577,7 @@ export default function Assistant() {
               <div className="text-muted text-mono" style={{ fontSize: '0.75rem', marginBottom: '1rem', letterSpacing: '0.05em' }}>REFERENCED VECTORS:</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 {response.referenced_functions.map((ref, idx) => (
-                  <span key={idx} className="text-mono" style={{ 
+                  <span key={idx} className="text-mono" style={{
                     fontSize: '0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
                     padding: '0.4rem 0.75rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.5rem'
                   }}>
