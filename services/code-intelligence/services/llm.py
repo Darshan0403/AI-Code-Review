@@ -1,46 +1,44 @@
 import os
-import httpx
 from fastapi import HTTPException
+from groq import AsyncGroq
 
-# We will use Groq's OpenAI-compatible endpoint
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+# 1. Initialize the Groq client globally.
+# Using AsyncGroq allows FastAPI to handle multiple concurrent Assistant/Search requests
+# efficiently without blocking the event loop or spinning up new clients every time.
+api_key = os.getenv("GROQ_API_KEY")
+if not api_key:
+    print("WARNING: GROQ_API_KEY is not set in the environment!")
 
-async def call_llm(prompt: str) -> str:
-    # 1. Grab the API key from the environment
-    api_key = os.getenv("GROQ_API_KEY")
+# Initialize the async client
+groq_client = AsyncGroq(api_key=api_key)
+
+async def call_llm(prompt: str, system_prompt: str = None) -> str:
+    """
+    The Single-Source-of-Truth LLM caller for the entire application.
+    Used by /api/explain and semantic_search.
+    """
     if not api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not set!")
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    # 2. Build the message array
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    
+    messages.append({"role": "user", "content": prompt})
 
-    # 2. Build the payload
-    payload = {
-        "model": "llama-3.3-70b-versatile", # Groq's top-tier open weights model
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2, # Keep it low so the AI is analytical, not overly creative
-        "max_tokens": 2048,
-    }
+    # 3. Call Groq using the official Python SDK
+    try:
+        completion = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile", # Standardized to match review.py
+            messages=messages,
+            temperature=0.2, # Kept low so the AI remains strictly analytical
+            max_tokens=2048,
+        )
+        
+        # 4. Extract and return the raw text
+        return completion.choices[0].message.content
 
-    # 3. Make the async HTTP call to Groq
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                GROQ_URL,
-                headers=headers,
-                json=payload,
-                timeout=30.0
-            )
-            response.raise_for_status() # Check for HTTP errors like 401 Unauthorized
-            
-            # Extract the raw text from the AI's response
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-            
-        except httpx.HTTPError as e:
-            print(f"Error calling Groq API: {e}")
-            raise HTTPException(status_code=500, detail="Failed to communicate with LLM")
+    except Exception as e:
+        print(f" LLM Client Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to communicate with LLM")

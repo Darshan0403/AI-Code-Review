@@ -2,109 +2,25 @@ import os
 import shutil
 import subprocess
 import uuid
-import re
-import ast
 from services.vector_store import vector_db
 from services.embedder import embed_code
+from services.ast_parser import extract_functions
 
 # We use a temporary directory for the shallow clones
 CLONE_DIR = "/tmp/repo_index"
 
-def parse_python_file(filepath):
-    functions = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            source = f.read()
-        
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                func_code = ast.get_source_segment(source, node)
-                if func_code:
-                    functions.append({
-                        "name": node.name,
-                        "lines": f"{node.lineno}-{node.end_lineno}",
-                        "code": func_code
-                    })
-    except Exception as e:
-        print(f" Skipping Python file {filepath}: {e}", flush=True)
-    return functions
-
-def parse_go_file(filepath):
-    functions = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        source = "".join(lines)
-        pattern = re.compile(r'func\s+(\w+)\s*\([^)]*\).*?{', re.DOTALL)
-        
-        for match in pattern.finditer(source):
-            func_name = match.group(1)
-            start_line = source.count('\n', 0, match.start()) + 1
-            
-            brace_count = 0
-            in_func = False
-            func_code_lines = []
-            
-            for line_idx, line in enumerate(lines[start_line-1:], start=start_line):
-                func_code_lines.append(line)
-                if '{' in line:
-                    brace_count += line.count('{')
-                    in_func = True
-                if '}' in line:
-                    brace_count -= line.count('}')
-                
-                if in_func and brace_count == 0:
-                    functions.append({
-                        "name": func_name,
-                        "lines": f"{start_line}-{line_idx}",
-                        "code": "".join(func_code_lines)
-                    })
-                    break
-    except Exception as e:
-        print(f" Skipping Go file {filepath}: {e}", flush=True)
-    return functions
-
-def parse_js_file(filepath):
-    """Basic Regex to extract JS/TS standard and arrow functions."""
-    functions = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        source = "".join(lines)
-        
-        # Matches: `function myFunc(` OR `const myFunc = (` OR `const myFunc = async (`
-        pattern = re.compile(r'(?:function\s+(\w+)\s*\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*{)', re.DOTALL)
-        
-        for match in pattern.finditer(source):
-            func_name = match.group(1) or match.group(2)
-            if not func_name:
-                continue
-                
-            start_line = source.count('\n', 0, match.start()) + 1
-            brace_count = 0
-            in_func = False
-            func_code_lines = []
-            
-            for i in range(start_line - 1, len(lines)):
-                line = lines[i]
-                func_code_lines.append(line)
-                if '{' in line:
-                    brace_count += line.count('{')
-                    in_func = True
-                if '}' in line:
-                    brace_count -= line.count('}')
-                    
-                if in_func and brace_count == 0:
-                    functions.append({
-                        "name": func_name,
-                        "lines": f"{start_line}-{i + 1}",
-                        "code": "".join(func_code_lines)
-                    })
-                    break
-    except Exception as e:
-        print(f" Skipping JS/TS file {filepath}: {e}", flush=True)
-    return functions
+def get_language_from_ext(filename: str) -> str:
+    """Maps file extensions to Tree-Sitter language identifiers."""
+    ext = filename.split('.')[-1].lower()
+    mapping = {
+        'py': 'python',
+        'go': 'go',
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'ts': 'typescript',
+        'tsx': 'typescript'
+    }
+    return mapping.get(ext)
 
 def index_repository(repo_full_name: str):
     print(f"\n Starting Real Indexing Pipeline for {repo_full_name}...", flush=True)
@@ -125,24 +41,34 @@ def index_repository(repo_full_name: str):
     all_functions = []
     
     for root, dirs, files in os.walk(repo_path):
-        if '.git' in root or 'vendor' in root or 'node_modules' in root or 'dist' in root or 'build' in root:
+        # Ignore standard build/dependency directories
+        if any(ignored in root for ignored in ['.git', 'vendor', 'node_modules', 'dist', 'build']):
             continue
             
         for file in files:
+            lang = get_language_from_ext(file)
+            if not lang:
+                continue # Skip files we don't support parsing for
+
             filepath = os.path.join(root, file)
             rel_path = os.path.relpath(filepath, repo_path)
             
-            extracted = []
-            if file.endswith('.py'):
-                extracted = parse_python_file(filepath)
-            elif file.endswith('.go'):
-                extracted = parse_go_file(filepath)
-            elif file.endswith(('.js', '.jsx', '.ts', '.tsx')): # <-- NOW SUPPORTS WEB DEVS
-                extracted = parse_js_file(filepath)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    code_content = f.read()
                 
-            for func in extracted:
-                func["file"] = rel_path
-                all_functions.append(func)
+                # Use the robust Tree-Sitter parser instead of regex
+                extracted = extract_functions(code_content, lang)
+                
+                for func in extracted:
+                    all_functions.append({
+                        "name": func["name"],
+                        "lines": f"{func['start_line']}-{func['end_line']}",
+                        "code": func["body"],
+                        "file": rel_path
+                    })
+            except Exception as e:
+                print(f" Skipping file {filepath}: {e}", flush=True)
 
     if not all_functions:
         shutil.rmtree(repo_path)
@@ -169,6 +95,9 @@ def index_repository(repo_full_name: str):
         
     print(" Upserting into ChromaDB...", flush=True)
     try:
+        # Note: 'repo' matches the metadata key we set above. 
+        # (Your original regex code used "repo_name" in review.py but "repo" here. I am keeping "repo" for the DB write, 
+        # but you should ensure review.py uses the same key when querying).
         vector_db.collection.delete(where={"repo": repo_full_name})
         vector_db.collection.add(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents)
     except Exception as e:
